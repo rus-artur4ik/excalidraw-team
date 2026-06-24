@@ -22,6 +22,9 @@ export type ReadPolicy = "public" | "members";
 export type WritePolicy = "everyone" | "whitelist" | "owner";
 export type BoardType = "personal" | "team";
 export type TeamRole = "editor" | "viewer";
+export type BotPolicy = "none" | "read" | "write";
+
+export const DEFAULT_BOT_POLICY: BotPolicy = "write";
 
 export type Board = {
   roomId: string;
@@ -33,6 +36,7 @@ export type Board = {
   readPolicy: ReadPolicy;
   writePolicy: WritePolicy;
   editors: string[];
+  botPolicy?: BotPolicy;
 };
 
 export type Team = {
@@ -99,10 +103,18 @@ export const loadBoard = async (
   return { board, roomKey };
 };
 
+export const loadBoardKey = async (
+  roomId: string,
+): Promise<string | null> => {
+  const db = getFirestoreInstance();
+  const keySnap = await getDoc(doc(db, "boardKeys", roomId));
+  return keySnap.exists() ? (keySnap.data().roomKey as string) ?? null : null;
+};
+
 export const updateBoardPolicy = async (
   roomId: string,
   patch: Partial<
-    Pick<Board, "readPolicy" | "writePolicy" | "editors" | "title">
+    Pick<Board, "readPolicy" | "writePolicy" | "editors" | "title" | "botPolicy">
   >,
 ) => {
   const db = getFirestoreInstance();

@@ -5,14 +5,12 @@ const ACCESS_BACKEND_URL = import.meta.env.VITE_APP_ACCESS_BACKEND_URL;
 export type MintedMcpToken = {
   token: string;
   mcpUrl: string;
-  role: string;
+  serverName: string;
   configSnippet: Record<string, unknown>;
 };
 
 export type McpTokenSummary = {
   token: string;
-  boardId: string;
-  role: string;
   createdAt: number;
   revoked: boolean;
 };
@@ -25,13 +23,11 @@ const authHeader = async (): Promise<{ Authorization: string }> => {
   return { Authorization: `Bearer ${idToken}` };
 };
 
-export const mintMcpToken = async (
-  boardId: string,
-): Promise<MintedMcpToken> => {
+export const mintMcpToken = async (): Promise<MintedMcpToken> => {
   const response = await fetch(`${ACCESS_BACKEND_URL}/mcp/tokens`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeader()) },
-    body: JSON.stringify({ boardId }),
+    body: JSON.stringify({}),
   });
   if (!response.ok) {
     throw new Error(`Failed to mint MCP token: ${response.status}`);
@@ -39,13 +35,10 @@ export const mintMcpToken = async (
   return response.json();
 };
 
-export const listMcpTokens = async (
-  boardId: string,
-): Promise<McpTokenSummary[]> => {
-  const response = await fetch(
-    `${ACCESS_BACKEND_URL}/mcp/tokens?boardId=${encodeURIComponent(boardId)}`,
-    { headers: await authHeader() },
-  );
+export const listMcpTokens = async (): Promise<McpTokenSummary[]> => {
+  const response = await fetch(`${ACCESS_BACKEND_URL}/mcp/tokens`, {
+    headers: await authHeader(),
+  });
   if (!response.ok) {
     throw new Error(`Failed to list MCP tokens: ${response.status}`);
   }

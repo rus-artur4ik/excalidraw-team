@@ -22,22 +22,30 @@ const modal: CSSProperties = {
   color: "#1b1b1f",
   borderRadius: 12,
   padding: 20,
-  width: "min(560px, 92vw)",
+  width: "min(620px, 92vw)",
   maxHeight: "86vh",
   overflowY: "auto",
   boxShadow: "0 10px 40px rgba(0, 0, 0, 0.35)",
 };
 
-const textarea: CSSProperties = {
-  width: "100%",
-  minHeight: 160,
-  fontFamily: "monospace",
-  fontSize: 13,
-  border: "1px solid #ccc",
+const pre: CSSProperties = {
+  margin: 0,
+  background: "#0f1117",
+  color: "#e6e6e6",
   borderRadius: 8,
-  padding: 10,
+  padding: "10px 12px",
+  fontFamily: "monospace",
+  fontSize: 12.5,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-all",
   boxSizing: "border-box",
-  resize: "vertical",
+};
+
+const blockHeader: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  margin: "14px 0 6px",
 };
 
 const tokenRow: CSSProperties = {
@@ -51,20 +59,62 @@ const tokenRow: CSSProperties = {
 
 const maskToken = (token: string) => `${token.slice(0, 8)}…${token.slice(-4)}`;
 
-export const McpConfigDialog = ({
-  boardId,
-  onClose,
-}: {
-  boardId: string;
-  onClose: () => void;
-}) => {
-  const [tokens, setTokens] = useState<McpTokenSummary[] | null>(null);
-  const [snippet, setSnippet] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+type Snippet = { token: string; mcpUrl: string; serverName: string; config: string };
+
+const buildCommands = (s: Snippet): { label: string; command: string }[] => {
+  const auth = `Authorization: Bearer ${s.token}`;
+  return [
+    {
+      label: "Claude Code",
+      command: `claude mcp add --transport http ${s.serverName} ${s.mcpUrl} --header "${auth}"`,
+    },
+    {
+      label: "Codex CLI",
+      command: `mkdir -p ~/.codex && cat >> ~/.codex/config.toml <<'EOF'
+
+[mcp_servers.${s.serverName.replace(/-/g, "_")}]
+url = "${s.mcpUrl}"
+http_headers = { Authorization = "Bearer ${s.token}" }
+EOF`,
+    },
+    {
+      label: "Gemini CLI",
+      command: `gemini mcp add --transport http ${s.serverName} ${s.mcpUrl} --header "${auth}"`,
+    },
+    {
+      label: "VS Code",
+      command: `code --add-mcp '{"name":"${s.serverName}","type":"http","url":"${s.mcpUrl}","headers":{"Authorization":"Bearer ${s.token}"}}'`,
+    },
+  ];
+};
+
+const CopyButton = ({ value }: { value: string }) => {
   const [copied, setCopied] = useState(false);
+  return (
+    <button
+      style={linkBtn}
+      onClick={() => {
+        navigator.clipboard
+          ?.writeText(value)
+          .then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          })
+          .catch(() => {});
+      }}
+    >
+      {copied ? "Copied ✓" : "Copy"}
+    </button>
+  );
+};
+
+export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
+  const [tokens, setTokens] = useState<McpTokenSummary[] | null>(null);
+  const [snippet, setSnippet] = useState<Snippet | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const refresh = () =>
-    listMcpTokens(boardId)
+    listMcpTokens()
       .then(setTokens)
       .catch((error) => {
         console.error(error);
@@ -73,15 +123,18 @@ export const McpConfigDialog = ({
 
   useEffect(() => {
     void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardId]);
+  }, []);
 
   const mint = async () => {
     setBusy(true);
-    setCopied(false);
     try {
-      const { configSnippet } = await mintMcpToken(boardId);
-      setSnippet(JSON.stringify(configSnippet, null, 2));
+      const { token, mcpUrl, serverName, configSnippet } = await mintMcpToken();
+      setSnippet({
+        token,
+        mcpUrl,
+        serverName,
+        config: JSON.stringify(configSnippet, null, 2),
+      });
       await refresh();
     } catch (error) {
       console.error(error);
@@ -104,24 +157,16 @@ export const McpConfigDialog = ({
     }
   };
 
-  const copy = () => {
-    if (snippet) {
-      navigator.clipboard
-        ?.writeText(snippet)
-        .then(() => setCopied(true))
-        .catch(() => {});
-    }
-  };
-
   const active = (tokens ?? []).filter((t) => !t.revoked);
 
   return (
     <div style={overlay} onClick={onClose}>
       <div style={modal} onClick={(event) => event.stopPropagation()}>
-        <h3 style={{ marginTop: 0 }}>MCP access tokens</h3>
+        <h3 style={{ marginTop: 0 }}>Connect an AI agent (MCP)</h3>
         <p style={{ color: "#666", marginTop: 0 }}>
-          Tokens let an MCP client (Claude Desktop/Code, etc.) act on this board
-          with your access. Revoke any you no longer use.
+          A token lets an MCP client (Claude Code, Codex, etc.) act on every
+          board you can access, subject to each board's bot permission. Revoke
+          any token you no longer use.
         </p>
 
         {tokens === null ? (
@@ -133,7 +178,6 @@ export const McpConfigDialog = ({
             {active.map((t) => (
               <div key={t.token} style={tokenRow}>
                 <code style={{ flex: 1 }}>{maskToken(t.token)}</code>
-                <span style={{ color: "#888" }}>{t.role}</span>
                 <span style={{ color: "#aaa" }}>
                   {new Date(t.createdAt).toLocaleDateString()}
                 </span>
@@ -151,15 +195,27 @@ export const McpConfigDialog = ({
 
         {snippet && (
           <>
-            <p style={{ marginBottom: 4 }}>
-              New token created. Copy this config — it won't be shown again:
+            <p style={{ margin: "16px 0 0", fontWeight: 600 }}>
+              New token created — it won't be shown again. Paste into your agent:
             </p>
-            <textarea
-              style={textarea}
-              readOnly
-              value={snippet}
-              onFocus={(event) => event.target.select()}
-            />
+
+            {buildCommands(snippet).map(({ label, command }) => (
+              <div key={label}>
+                <div style={blockHeader}>
+                  <strong style={{ fontSize: 13 }}>{label}</strong>
+                  <CopyButton value={command} />
+                </div>
+                <pre style={pre}>{command}</pre>
+              </div>
+            ))}
+
+            <div style={blockHeader}>
+              <strong style={{ fontSize: 13 }}>
+                Raw config (Cursor, Windsurf, Claude Desktop, …)
+              </strong>
+              <CopyButton value={snippet.config} />
+            </div>
+            <pre style={pre}>{snippet.config}</pre>
           </>
         )}
 
@@ -168,17 +224,12 @@ export const McpConfigDialog = ({
             display: "flex",
             justifyContent: "flex-end",
             gap: 8,
-            marginTop: 12,
+            marginTop: 16,
           }}
         >
           <button style={linkBtn} onClick={onClose}>
             Close
           </button>
-          {snippet && (
-            <button style={linkBtn} onClick={copy}>
-              {copied ? "Copied ✓" : "Copy"}
-            </button>
-          )}
           <button style={btn} disabled={busy} onClick={mint}>
             Generate new token
           </button>

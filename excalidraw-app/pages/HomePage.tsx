@@ -10,36 +10,56 @@ import {
 } from "../data/boards";
 import { navigate } from "../router";
 
+import { BoardCard } from "./BoardCard";
 import { BoardSettings } from "./BoardSettings";
 import { McpConfigDialog } from "./McpConfigDialog";
 import {
+  badge,
+  boardCard,
   btn,
-  card,
+  cardGrid,
   headerStyle,
   input,
   linkBtn,
   pageStyle,
+  skeletonShimmer,
+  thumbBox,
 } from "./pageStyles";
 
 import type { Board } from "../data/boards";
 
+const SkeletonCard = () => (
+  <li style={boardCard}>
+    <div style={thumbBox}>
+      <div style={skeletonShimmer} />
+    </div>
+    <div style={{ padding: "10px 12px", display: "flex", gap: 6 }}>
+      <span style={{ ...badge, width: 70, height: 14 }} />
+      <span style={{ ...badge, width: 50, height: 14 }} />
+    </div>
+  </li>
+);
+
 export const HomePage = () => {
   const { user, loading, signIn, signOut } = useAuth();
   const [boards, setBoards] = useState<Board[]>([]);
+  const [loadingBoards, setLoadingBoards] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [mcpBoardId, setMcpBoardId] = useState<string | null>(null);
+  const [mcpOpen, setMcpOpen] = useState(false);
 
   useEffect(() => {
     if (!user) {
       setBoards([]);
       setIsAdmin(false);
+      setLoadingBoards(false);
       return;
     }
     let cancelled = false;
+    setLoadingBoards(true);
     (async () => {
       const teamIds = await listMyTeamIds();
       const [mine, team] = await Promise.all([
@@ -56,7 +76,13 @@ export const HomePage = () => {
       setIsAdmin(
         teams.some((t) => t && user.email && t.admins.includes(user.email)),
       );
-    })().catch((error) => console.error(error));
+    })()
+      .catch((error) => console.error(error))
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingBoards(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -95,11 +121,19 @@ export const HomePage = () => {
     }
   };
 
+  const expandedBoard = boards.find((board) => board.roomId === expandedId);
+
   return (
     <div style={pageStyle}>
+      <style>
+        {`@keyframes boardSkeleton { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }`}
+      </style>
       <header style={headerStyle}>
         <h1>Your boards</h1>
         <div>
+          <button style={linkBtn} onClick={() => setMcpOpen(true)}>
+            Connect AI (MCP)
+          </button>
           {isAdmin && (
             <button style={linkBtn} onClick={() => navigate("/admin")}>
               Admin
@@ -129,64 +163,44 @@ export const HomePage = () => {
         </button>
       </div>
 
-      {boards.length === 0 ? (
-        <p>No boards yet.</p>
+      {loadingBoards ? (
+        <ul style={cardGrid}>
+          {[0, 1, 2, 3].map((i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </ul>
+      ) : boards.length === 0 ? (
+        <p style={{ color: "#888" }}>No boards yet. Create your first one above.</p>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {boards.map((board) => {
-            const owned = board.ownerUid === user.uid;
-            return (
-              <li key={board.roomId} style={{ listStyle: "none" }}>
-                <div style={card}>
-                  <span
-                    style={{ cursor: "pointer", flex: 1 }}
-                    onClick={() => navigate(`/b/${board.roomId}`)}
-                  >
-                    <strong>{board.title || "Untitled"}</strong>{" "}
-                    <span style={{ color: "#888" }}>
-                      {board.type === "team" ? "team" : "personal"} ·{" "}
-                      {board.readPolicy}/{board.writePolicy}
-                    </span>
-                  </span>
-                  <button
-                    style={linkBtn}
-                    onClick={() => setMcpBoardId(board.roomId)}
-                  >
-                    MCP
-                  </button>
-                  {owned && (
-                    <button
-                      style={linkBtn}
-                      onClick={() =>
-                        setExpandedId(
-                          expandedId === board.roomId ? null : board.roomId,
-                        )
-                      }
-                    >
-                      Access
-                    </button>
-                  )}
-                </div>
-                {owned && expandedId === board.roomId && (
-                  <BoardSettings
-                    board={board}
-                    onSaved={() => {
-                      setExpandedId(null);
-                      setReloadKey((key) => key + 1);
-                    }}
-                  />
-                )}
-              </li>
-            );
-          })}
+        <ul style={cardGrid}>
+          {boards.map((board) => (
+            <BoardCard
+              key={board.roomId}
+              board={board}
+              owned={board.ownerUid === user.uid}
+              onAccess={() =>
+                setExpandedId(
+                  expandedId === board.roomId ? null : board.roomId,
+                )
+              }
+            />
+          ))}
         </ul>
       )}
-      {mcpBoardId !== null && (
-        <McpConfigDialog
-          boardId={mcpBoardId}
-          onClose={() => setMcpBoardId(null)}
-        />
+
+      {expandedBoard && expandedBoard.ownerUid === user.uid && (
+        <div style={{ marginTop: 16 }}>
+          <BoardSettings
+            board={expandedBoard}
+            onSaved={() => {
+              setExpandedId(null);
+              setReloadKey((key) => key + 1);
+            }}
+          />
+        </div>
       )}
+
+      {mcpOpen && <McpConfigDialog onClose={() => setMcpOpen(false)} />}
     </div>
   );
 };

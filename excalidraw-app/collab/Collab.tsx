@@ -86,6 +86,10 @@ import {
 } from "../data/firebase";
 import { createSceneHistoryId } from "../data/SceneHistory";
 import {
+  renderBoardThumbnail,
+  saveBoardThumbnail,
+} from "../data/boardThumbnail";
+import {
   importUsernameFromLocalStorage,
   saveUsernameToLocalStorage,
 } from "../data/localStorage";
@@ -878,6 +882,51 @@ class Collab extends PureComponent<CollabProps, CollabState> {
     });
 
     this.loadImageFiles();
+    this.scheduleThumbnailRefresh();
+  };
+
+  private thumbnailTimer: number | null = null;
+  private lastThumbnailSceneVersion = -1;
+
+  private scheduleThumbnailRefresh = () => {
+    if (this.thumbnailTimer != null) {
+      window.clearTimeout(this.thumbnailTimer);
+    }
+    this.thumbnailTimer = window.setTimeout(() => {
+      void this.refreshBoardThumbnail();
+    }, 4000);
+  };
+
+  private refreshBoardThumbnail = async () => {
+    const roomId = this.portal.roomId;
+    const roomKey = this.portal.roomKey;
+    if (!roomId || !roomKey || !this.isCollaborating()) {
+      return;
+    }
+    const elements =
+      this.excalidrawAPI.getSceneElementsIncludingDeleted() as readonly OrderedExcalidrawElement[];
+    const sceneVersion = getSceneVersion(elements);
+    if (sceneVersion === this.lastThumbnailSceneVersion) {
+      return;
+    }
+    const appState = this.excalidrawAPI.getAppState();
+    const dataUrl = await renderBoardThumbnail(
+      elements,
+      {
+        viewBackgroundColor: appState.viewBackgroundColor,
+        exportWithDarkMode: appState.exportWithDarkMode,
+      },
+      this.excalidrawAPI.getFiles(),
+    );
+    if (!dataUrl) {
+      return;
+    }
+    try {
+      await saveBoardThumbnail({ roomId, roomKey, dataUrl, sceneVersion });
+      this.lastThumbnailSceneVersion = sceneVersion;
+    } catch (error) {
+      console.error("Failed to save board thumbnail:", error);
+    }
   };
 
   private onPointerMove = () => {
