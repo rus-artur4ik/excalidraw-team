@@ -27,5 +27,3 @@ dev-dist
 html
 meta*.json
 .claude
-secrets/
-stack.env
