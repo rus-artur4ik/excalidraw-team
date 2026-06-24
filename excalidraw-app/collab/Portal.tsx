@@ -13,6 +13,7 @@ import type {
 
 import { WS_EVENTS, FILE_UPLOAD_TIMEOUT, WS_SUBTYPES } from "../app_constants";
 import { isSyncableElement } from "../data";
+import { getCurrentAppUser } from "../data/firebase";
 
 import type {
   SocketUpdateData,
@@ -213,6 +214,7 @@ class Portal {
           selectedElementIds:
             this.collab.excalidrawAPI.getAppState().selectedElementIds,
           username: this.collab.state.username,
+          avatarUrl: getCurrentAppUser()?.photoURL ?? undefined,
         },
       };
 

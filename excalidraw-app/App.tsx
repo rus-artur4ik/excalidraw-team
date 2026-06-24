@@ -121,7 +121,7 @@ import {
   importUsernameFromLocalStorage,
 } from "./data/localStorage";
 
-import { loadFilesFromFirebase } from "./data/firebase";
+import { getCurrentAppUser, loadFilesFromFirebase } from "./data/firebase";
 import {
   LibraryIndexedDBAdapter,
   LibraryLocalStorageMigrationAdapter,
@@ -131,6 +131,12 @@ import {
 import { isBrowserStorageStateNewer } from "./data/tabSync";
 import { ShareDialog, shareDialogStateAtom } from "./share/ShareDialog";
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
+import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { boardViewOnlyAtom } from "./boardSession";
+import { canWriteBoard, loadBoard, loadTeam } from "./data/boards";
+import { AdminPage } from "./pages/AdminPage";
+import { HomePage } from "./pages/HomePage";
+import { getBoardRouteId, usePathname } from "./router";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
@@ -246,6 +252,33 @@ const initializeScene = async (opts: {
   };
 
   let roomLinkData = getCollaborationLinkData(window.location.href);
+  const boardRouteId = getBoardRouteId(window.location.pathname);
+  if (!roomLinkData && boardRouteId) {
+    try {
+      const loaded = await loadBoard(boardRouteId);
+      if (loaded?.roomKey) {
+        roomLinkData = { roomId: boardRouteId, roomKey: loaded.roomKey };
+        const team = loaded.board.teamId
+          ? await loadTeam(loaded.board.teamId)
+          : null;
+        const canWrite = canWriteBoard(loaded.board, getCurrentAppUser(), team);
+        appJotaiStore.set(boardViewOnlyAtom, !canWrite);
+      }
+    } catch (error: any) {
+      console.error("Failed to load board", error);
+    }
+    if (!roomLinkData) {
+      return {
+        scene: {
+          appState: {
+            errorMessage:
+              "You don't have access to this board, or you need to sign in.",
+          },
+        },
+        isExternalScene: false,
+      };
+    }
+  }
   const isExternalScene = !!(id || jsonBackendMatch || roomLinkData);
   if (isExternalScene) {
     if (
@@ -409,6 +442,7 @@ const ExcalidrawWrapper = () => {
     return isCollaborationLink(window.location.href);
   });
   const collabError = useAtomValue(collabErrorIndicatorAtom);
+  const isBoardViewOnly = useAtomValue(boardViewOnlyAtom);
 
   useHandleLibrary({
     excalidrawAPI,
@@ -909,6 +943,7 @@ const ExcalidrawWrapper = () => {
     >
       <Excalidraw
         onChange={onChange}
+        viewModeEnabled={isBoardViewOnly}
         onExport={onExport}
         initialData={initialStatePromiseRef.current.promise}
         isCollaborating={isCollaborating}
@@ -1261,6 +1296,33 @@ const ExcalidrawWrapper = () => {
   );
 };
 
+const RoutedApp = () => {
+  const pathname = usePathname();
+  const { loading: authLoading } = useAuth();
+  const hasCollabHash = isCollaborationLink(window.location.href);
+
+  if (!hasCollabHash) {
+    if (pathname === "/" || pathname === "") {
+      return <HomePage />;
+    }
+    if (pathname === "/admin") {
+      return <AdminPage />;
+    }
+  }
+
+  // editor mounts only once auth is resolved, so a private board's key fetch
+  // sees the restored user instead of racing against session restore
+  if (authLoading) {
+    return <div style={{ padding: 24 }}>Loading…</div>;
+  }
+
+  return (
+    <ExcalidrawAPIProvider>
+      <ExcalidrawWrapper />
+    </ExcalidrawAPIProvider>
+  );
+};
+
 const ExcalidrawApp = () => {
   const isCloudExportWindow =
     window.location.pathname === "/excalidraw-plus-export";
@@ -1268,12 +1330,26 @@ const ExcalidrawApp = () => {
     return <ExcalidrawPlusIframeExport />;
   }
 
+  // the editor-focused test suite renders this component at "/"; bypass the
+  // auth + dashboard shell there so it mounts the editor directly
+  if (import.meta.env.MODE === "test") {
+    return (
+      <TopErrorBoundary>
+        <Provider store={appJotaiStore}>
+          <ExcalidrawAPIProvider>
+            <ExcalidrawWrapper />
+          </ExcalidrawAPIProvider>
+        </Provider>
+      </TopErrorBoundary>
+    );
+  }
+
   return (
     <TopErrorBoundary>
       <Provider store={appJotaiStore}>
-        <ExcalidrawAPIProvider>
-          <ExcalidrawWrapper />
-        </ExcalidrawAPIProvider>
+        <AuthProvider>
+          <RoutedApp />
+        </AuthProvider>
       </Provider>
     </TopErrorBoundary>
   );

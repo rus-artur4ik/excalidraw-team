@@ -1,10 +1,95 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow get, write: if true;
-      // never set this to true, otherwise anyone can delete anyone else's drawing.
-      allow list: if false;
+
+    function signedIn() { return request.auth != null; }
+    function email() { return request.auth.token.email; }
+
+    function boardOf(id) { return get(/databases/$(database)/documents/boards/$(id)).data; }
+    function teamOf(tid) { return get(/databases/$(database)/documents/teams/$(tid)).data; }
+    function hasTeam(b) { return 'teamId' in b && b.teamId != null; }
+
+    // History documents are stored as `scenes/{roomId}~history...`; the owning
+    // board is the segment before the first `~` (room ids never contain `~`).
+    function sceneBoardId(id) { return id.split('~')[0]; }
+    function sceneBoardExists(id) {
+      return exists(/databases/$(database)/documents/boards/$(sceneBoardId(id)));
+    }
+
+    function isOwner(b) { return signedIn() && request.auth.uid == b.ownerUid; }
+    function isWhitelistedEditor(b) { return signedIn() && 'editors' in b && email() in b.editors; }
+    function teamAdmin(b) {
+      return hasTeam(b) && signedIn() && email() in teamOf(b.teamId).admins;
+    }
+    function teamEditor(b) {
+      return hasTeam(b) && signedIn() &&
+        (email() in teamOf(b.teamId).admins || email() in teamOf(b.teamId).editorEmails);
+    }
+    function teamMember(b) {
+      return hasTeam(b) && signedIn() &&
+        (email() in teamOf(b.teamId).admins ||
+         email() in teamOf(b.teamId).editorEmails ||
+         email() in teamOf(b.teamId).viewerEmails);
+    }
+
+    function canRead(b) {
+      return b.readPolicy == 'public' || isOwner(b) || isWhitelistedEditor(b) || teamMember(b);
+    }
+    function canWrite(b) {
+      return b.writePolicy == 'everyone'
+        || isOwner(b) || teamAdmin(b)
+        || (b.writePolicy == 'whitelist' && isWhitelistedEditor(b))
+        || teamEditor(b);
+    }
+
+    match /boards/{id} {
+      allow get:    if canRead(resource.data);
+      allow create: if signedIn()
+                       && request.resource.data.ownerUid == request.auth.uid
+                       && request.resource.data.ownerEmail == email()
+                       && (!hasTeam(request.resource.data)
+                           || teamAdmin(request.resource.data));
+      allow update: if (isOwner(resource.data) || teamAdmin(resource.data))
+                       && request.resource.data.diff(resource.data).affectedKeys()
+                            .hasOnly(['readPolicy', 'writePolicy', 'editors',
+                                      'title', 'updatedAt']);
+      allow delete: if isOwner(resource.data) || teamAdmin(resource.data);
+      allow list: if signedIn() &&
+        (resource.data.ownerUid == request.auth.uid || teamMember(resource.data));
+    }
+
+    match /boardKeys/{id} {
+      allow get:   if canRead(boardOf(id));
+      allow write: if isOwner(boardOf(id)) || teamAdmin(boardOf(id));
+    }
+
+    match /boards/{id}/history/{entryId} {
+      allow get, list: if canRead(boardOf(id));
+      allow write:     if canWrite(boardOf(id));
+    }
+
+    // Encrypted scene blob and shared history. Gated by the owning board's ACL;
+    // a missing board doc means a legacy `#room=` share, kept open by link secrecy.
+    match /scenes/{id} {
+      allow get:   if !sceneBoardExists(id) || canRead(boardOf(sceneBoardId(id)));
+      allow write: if !sceneBoardExists(id) || canWrite(boardOf(sceneBoardId(id)));
+      allow list:  if false;
+    }
+
+    match /teams/{id} {
+      allow get: if signedIn() &&
+        (email() in resource.data.admins ||
+         email() in resource.data.editorEmails ||
+         email() in resource.data.viewerEmails);
+      allow update: if signedIn() && email() in resource.data.admins;
+      allow create, delete, list: if false;
+    }
+
+    match /mcpTokens/{token} { allow read, write: if false; }
+
+    match /users/{uid} {
+      allow get:   if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid;
     }
   }
 }

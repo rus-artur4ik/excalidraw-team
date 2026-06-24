@@ -9,6 +9,14 @@ import { restoreElements } from "@excalidraw/excalidraw/data/restore";
 import { getSceneVersion } from "@excalidraw/element";
 import { initializeApp } from "firebase/app";
 import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  type User,
+} from "firebase/auth";
+import {
   getFirestore,
   doc,
   getDoc,
@@ -16,7 +24,7 @@ import {
   runTransaction,
   Bytes,
 } from "firebase/firestore";
-import { getStorage, ref, uploadBytes } from "firebase/storage";
+import { getStorage } from "firebase/storage";
 
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 import type {
@@ -30,8 +38,6 @@ import type {
   BinaryFileMetadata,
   DataURL,
 } from "@excalidraw/excalidraw/types";
-
-import { FILE_CACHE_MAX_AGE_SEC } from "../app_constants";
 
 import {
   createSceneHistoryId,
@@ -69,9 +75,15 @@ try {
   FIREBASE_CONFIG = {};
 }
 
+// image blobs live in the self-hosted access-backend file service, not Firebase Storage
+const ACCESS_BACKEND_URL = import.meta.env.VITE_APP_ACCESS_BACKEND_URL;
+const fileServiceUrl = (prefix: string, id: string) =>
+  `${ACCESS_BACKEND_URL}/${prefix.replace(/^\//, "")}/${id}`;
+
 let firebaseApp: ReturnType<typeof initializeApp> | null = null;
 let firestore: ReturnType<typeof getFirestore> | null = null;
 let firebaseStorage: ReturnType<typeof getStorage> | null = null;
+let firebaseAuth: ReturnType<typeof getAuth> | null = null;
 
 const _initializeFirebase = () => {
   if (!firebaseApp) {
@@ -99,6 +111,53 @@ const _getStorage = () => {
 export const loadFirebaseStorage = async () => {
   return _getStorage();
 };
+
+export const getFirestoreInstance = () => _getFirestore();
+
+const _getAuth = () => {
+  if (!firebaseAuth) {
+    firebaseAuth = getAuth(_initializeFirebase());
+  }
+  return firebaseAuth;
+};
+
+export type AppUser = {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+};
+
+const toAppUser = (user: User | null): AppUser | null =>
+  user
+    ? {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+      }
+    : null;
+
+export const subscribeToAuthChanges = (
+  callback: (user: AppUser | null) => void,
+) => onAuthStateChanged(_getAuth(), (user) => callback(toAppUser(user)));
+
+export const signInWithGoogle = async () => {
+  const result = await signInWithPopup(_getAuth(), new GoogleAuthProvider());
+  return toAppUser(result.user);
+};
+
+export const signOutFromApp = async () => {
+  await signOut(_getAuth());
+};
+
+export const getCurrentUserIdToken = async (): Promise<string | null> => {
+  const user = _getAuth().currentUser;
+  return user ? user.getIdToken() : null;
+};
+
+export const getCurrentAppUser = (): AppUser | null =>
+  toAppUser(_getAuth().currentUser);
 
 type FirebaseStoredScene = {
   sceneVersion: number;
@@ -300,18 +359,24 @@ export const saveFilesToFirebase = async ({
   prefix: string;
   files: { id: FileId; buffer: Uint8Array }[];
 }) => {
-  const storage = await loadFirebaseStorage();
-
   const erroredFiles: FileId[] = [];
   const savedFiles: FileId[] = [];
+  const token = await getCurrentUserIdToken();
 
   await Promise.all(
     files.map(async ({ id, buffer }) => {
       try {
-        const storageRef = ref(storage, `${prefix}/${id}`);
-        await uploadBytes(storageRef, buffer, {
-          cacheControl: `public, max-age=${FILE_CACHE_MAX_AGE_SEC}`,
+        const response = await fetch(fileServiceUrl(prefix, id), {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: new Uint8Array(buffer),
         });
+        if (!response.ok) {
+          throw new Error(`Failed to save file ${id}: ${response.status}`);
+        }
         savedFiles.push(id);
       } catch (error: any) {
         erroredFiles.push(id);
@@ -586,14 +651,14 @@ export const loadFilesFromFirebase = async (
 ) => {
   const loadedFiles: BinaryFileData[] = [];
   const erroredFiles = new Map<FileId, true>();
+  const token = await getCurrentUserIdToken();
 
   await Promise.all(
     [...new Set(filesIds)].map(async (id) => {
       try {
-        const url = `https://firebasestorage.googleapis.com/v0/b/${
-          FIREBASE_CONFIG.storageBucket
-        }/o/${encodeURIComponent(prefix.replace(/^\//, ""))}%2F${id}`;
-        const response = await fetch(`${url}?alt=media`);
+        const response = await fetch(fileServiceUrl(prefix, id), {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
         if (response.status < 400) {
           const arrayBuffer = await response.arrayBuffer();
 

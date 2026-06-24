@@ -76,6 +76,8 @@ import { FileStatusStore } from "../data/fileStatusStore";
 import { LocalData } from "../data/LocalData";
 import {
   appendSceneHistoryToFirebase,
+  getCurrentAppUser,
+  getCurrentUserIdToken,
   isSavedToFirebase,
   loadFilesFromFirebase,
   loadFromFirebase,
@@ -350,12 +352,17 @@ class Collab extends PureComponent<CollabProps, CollabState> {
         this.pendingHistoryRestoreSourceId = null;
 
         if (isLocalSceneChange && this.portal.roomId && this.portal.roomKey) {
+          const appUser = getCurrentAppUser();
           try {
             await appendSceneHistoryToFirebase({
               roomId: this.portal.roomId,
               roomKey: this.portal.roomKey,
               sessionId: this.sceneHistorySessionId,
-              author: this.getUsername() || undefined,
+              author:
+                appUser?.displayName ||
+                appUser?.email ||
+                this.getUsername() ||
+                "Гость",
               elements: storedElements as readonly OrderedExcalidrawElement[],
               appState: this.excalidrawAPI.getAppState(),
               kind: restoreSourceId ? "restore" : "change",
@@ -520,10 +527,12 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   startCollaboration = async (
     existingRoomLinkData: null | { roomId: string; roomKey: string },
   ) => {
-    if (!this.state.username) {
+    const appUser = getCurrentAppUser();
+    if (appUser?.displayName || appUser?.email) {
+      this.setUsername(appUser.displayName || appUser.email || "");
+    } else if (!this.state.username) {
       import("@excalidraw/random-username").then(({ getRandomUsername }) => {
-        const username = getRandomUsername();
-        this.setUsername(username);
+        this.setUsername(getRandomUsername());
       });
     }
 
@@ -568,16 +577,24 @@ class Collab extends PureComponent<CollabProps, CollabState> {
     };
     this.fallbackInitializationHandler = fallbackInitializationHandler;
 
+    const idToken = await getCurrentUserIdToken();
+
     try {
       this.portal.socket = this.portal.open(
         socketIOClient(import.meta.env.VITE_APP_WS_SERVER_URL, {
           transports: ["websocket", "polling"],
+          auth: idToken ? { token: idToken } : undefined,
         }),
         roomId,
         roomKey,
       );
 
       this.portal.socket.once("connect_error", fallbackInitializationHandler);
+      this.portal.socket.on("access-denied", () => {
+        this.setErrorDialog(
+          "You don't have access to this board, or it is read-only for you.",
+        );
+      });
     } catch (error: any) {
       console.error(error);
       this.setErrorDialog(error.message);
@@ -658,7 +675,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
             );
             break;
           case WS_SUBTYPES.MOUSE_LOCATION: {
-            const { pointer, button, username, selectedElementIds } =
+            const { pointer, button, username, selectedElementIds, avatarUrl } =
               decryptedData.payload;
 
             const socketId: SocketUpdateDataSource["MOUSE_LOCATION"]["payload"]["socketId"] =
@@ -671,6 +688,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
               button,
               selectedElementIds,
               username,
+              avatarUrl: avatarUrl ?? undefined,
             });
 
             break;

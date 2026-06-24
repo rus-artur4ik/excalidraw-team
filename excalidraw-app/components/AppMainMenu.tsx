@@ -10,8 +10,12 @@ import { isDevEnv } from "@excalidraw/common";
 
 import type { Theme } from "@excalidraw/element/types";
 
+import { useAtomValue } from "../app-jotai";
 import { LanguageList } from "../app-language/LanguageList";
 import { isExcalidrawPlusSignedUser } from "../app_constants";
+import { currentUserAtom } from "../auth/atoms";
+import { signOutFromApp } from "../data/firebase";
+import { navigate } from "../router";
 
 import { saveDebugState } from "./DebugCanvas";
 
@@ -22,8 +26,27 @@ export const AppMainMenu: React.FC<{
   theme: Theme | "system";
   refresh: () => void;
 }> = React.memo((props) => {
+  const user = useAtomValue(currentUserAtom);
   return (
     <MainMenu>
+      {user && (
+        <>
+          <MainMenu.Item icon={loginIcon} onSelect={() => navigate("/")}>
+            My boards
+          </MainMenu.Item>
+          <MainMenu.Item
+            icon={loginIcon}
+            onSelect={() => {
+              signOutFromApp()
+                .then(() => navigate("/"))
+                .catch((error) => console.error(error));
+            }}
+          >
+            Sign out ({user.displayName ?? user.email})
+          </MainMenu.Item>
+          <MainMenu.Separator />
+        </>
+      )}
       <MainMenu.DefaultItems.LoadScene />
       <MainMenu.DefaultItems.SaveToActiveFile />
       <MainMenu.DefaultItems.Export />

@@ -39,6 +39,12 @@ vi.mock("../../excalidraw-app/data/firebase.ts", () => {
     savedFiles: new Map(),
     erroredFiles: new Map(),
   });
+  const getCurrentUserIdToken = async () => null;
+  const getCurrentAppUser = () => null;
+  const loadSceneHistoryFromFirebase = async () => null;
+  const subscribeSceneHistoryFromFirebase = () => () => {};
+  const loadSceneHistoryEntryFromFirebase = async () => null;
+  const appendSceneHistoryToFirebase = async () => {};
 
   return {
     loadFromFirebase,
@@ -46,6 +52,12 @@ vi.mock("../../excalidraw-app/data/firebase.ts", () => {
     isSavedToFirebase,
     loadFilesFromFirebase,
     saveFilesToFirebase,
+    getCurrentUserIdToken,
+    getCurrentAppUser,
+    loadSceneHistoryFromFirebase,
+    subscribeSceneHistoryFromFirebase,
+    loadSceneHistoryEntryFromFirebase,
+    appendSceneHistoryToFirebase,
   };
 });
 

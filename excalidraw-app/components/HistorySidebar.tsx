@@ -774,13 +774,24 @@ export const HistorySidebar = ({
                 <span className="history-sidebar__marker" />
                 <span className="history-sidebar__thumbnail">
                   {entry.author ? (
-                    <span
-                      className="history-sidebar__avatar"
-                      style={{ backgroundColor: getAuthorColor(entry.author) }}
-                      title={entry.author}
-                    >
-                      {getAuthorInitials(entry.author)}
-                    </span>
+                    entry.author.startsWith("Бот ") ? (
+                      <span
+                        className="history-sidebar__avatar"
+                        title={entry.author}
+                      >
+                        🤖
+                      </span>
+                    ) : (
+                      <span
+                        className="history-sidebar__avatar"
+                        style={{
+                          backgroundColor: getAuthorColor(entry.author),
+                        }}
+                        title={entry.author}
+                      >
+                        {getAuthorInitials(entry.author)}
+                      </span>
+                    )
                   ) : entry.thumbnail ? (
                     <img alt="" src={entry.thumbnail} />
                   ) : (

@@ -100,6 +100,7 @@ export type SocketUpdateDataSource = {
       button: "down" | "up";
       selectedElementIds: AppState["selectedElementIds"];
       username: string;
+      avatarUrl?: string | null;
     };
   };
   USER_VISIBLE_SCENE_BOUNDS: {
