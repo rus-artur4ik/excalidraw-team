@@ -62,7 +62,7 @@ export const renderBoardThumbnail = async (
         };
       },
     });
-    return canvas.toDataURL("image/png");
+    return canvas.toDataURL("image/jpeg", 0.6);
   } catch (error) {
     console.warn("Failed to render board thumbnail:", error);
     return null;

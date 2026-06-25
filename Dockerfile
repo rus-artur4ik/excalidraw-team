@@ -21,6 +21,9 @@ RUN printf "VITE_APP_FIREBASE_CONFIG='%s'\nVITE_APP_WS_SERVER_URL=%s\nVITE_APP_A
 
 RUN npm_config_target_arch=${TARGETARCH} yarn build:app:docker
 
+# sourcemaps are not needed in production and should not be publicly served
+RUN find excalidraw-app/build -name '*.map' -delete
+
 FROM nginxinc/nginx-unprivileged:stable-alpine-slim@sha256:135f43c7a35d19f89c677eec35d7767a08c434b4dd3839815f0d4640e57bc734
 
 COPY --from=build /opt/node_app/excalidraw-app/build /usr/share/nginx/html

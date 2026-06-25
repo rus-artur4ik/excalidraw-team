@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-import { loadBoardKey } from "../data/boards";
 import { loadBoardThumbnail } from "../data/boardThumbnail";
 import { navigate } from "../router";
 
@@ -19,37 +18,38 @@ export const BoardCard = ({
   board,
   owned,
   onAccess,
+  roomKey,
 }: {
   board: Board;
   owned: boolean;
   onAccess: () => void;
+  roomKey: string | null;
 }) => {
   const [thumb, setThumb] = useState<string | null>(null);
   const [loadingThumb, setLoadingThumb] = useState(true);
 
   useEffect(() => {
+    if (!roomKey) {
+      return;
+    }
     let active = true;
-    (async () => {
-      try {
-        const roomKey = await loadBoardKey(board.roomId);
-        const dataUrl = roomKey
-          ? await loadBoardThumbnail({ roomId: board.roomId, roomKey })
-          : null;
+    setLoadingThumb(true);
+    loadBoardThumbnail({ roomId: board.roomId, roomKey })
+      .then((dataUrl) => {
         if (active) {
           setThumb(dataUrl);
         }
-      } catch (error) {
-        console.error(error);
-      } finally {
+      })
+      .catch((error) => console.error(error))
+      .finally(() => {
         if (active) {
           setLoadingThumb(false);
         }
-      }
-    })();
+      });
     return () => {
       active = false;
     };
-  }, [board.roomId]);
+  }, [board.roomId, roomKey]);
 
   const open = () => navigate(`/b/${board.roomId}`);
 

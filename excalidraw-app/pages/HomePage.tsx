@@ -5,9 +5,9 @@ import { useAuth } from "../auth/AuthContext";
 import {
   createBoard,
   listMyBoards,
-  listMyTeamIds,
+  listMyTeams,
   listTeamBoards,
-  loadTeam,
+  loadBoardKeys,
 } from "../data/boards";
 import { navigate } from "../router";
 
@@ -44,6 +44,9 @@ const SkeletonCard = () => (
 export const HomePage = () => {
   const { user, loading, signIn, signOut } = useAuth();
   const [boards, setBoards] = useState<Board[]>([]);
+  const [roomKeys, setRoomKeys] = useState<Map<string, string | null>>(
+    new Map(),
+  );
   const [loadingBoards, setLoadingBoards] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [title, setTitle] = useState("");
@@ -63,21 +66,27 @@ export const HomePage = () => {
     let cancelled = false;
     setLoadingBoards(true);
     (async () => {
-      const teamIds = await listMyTeamIds();
+      const minePromise = listMyBoards();
+      const teams = await listMyTeams();
+      const teamIds = teams.map((t) => t.teamId);
       const [mine, team] = await Promise.all([
-        listMyBoards(),
+        minePromise,
         listTeamBoards(teamIds),
       ]);
-      const byId = new Map<string, Board>();
-      [...mine, ...team].forEach((board) => byId.set(board.roomId, board));
-      const teams = await Promise.all(teamIds.map((id) => loadTeam(id)));
       if (cancelled) {
         return;
       }
-      setBoards([...byId.values()]);
+      const byId = new Map<string, Board>();
+      [...mine, ...team].forEach((board) => byId.set(board.roomId, board));
+      const list = [...byId.values()];
+      setBoards(list);
       setIsAdmin(
-        teams.some((t) => t && user.email && t.admins.includes(user.email)),
+        teams.some((t) => user.email && t.admins.includes(user.email)),
       );
+      const keys = await loadBoardKeys(list.map((board) => board.roomId));
+      if (!cancelled) {
+        setRoomKeys(keys);
+      }
     })()
       .catch((error) => console.error(error))
       .finally(() => {
@@ -194,6 +203,7 @@ export const HomePage = () => {
               key={board.roomId}
               board={board}
               owned={board.ownerUid === user.uid}
+              roomKey={roomKeys.get(board.roomId) ?? null}
               onAccess={() =>
                 setExpandedId(expandedId === board.roomId ? null : board.roomId)
               }

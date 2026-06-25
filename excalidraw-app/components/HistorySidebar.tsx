@@ -23,7 +23,6 @@ import type {
 } from "@excalidraw/excalidraw/types";
 
 import { LocalData } from "../data/LocalData";
-import { getCollaborationLinkData } from "../data";
 import {
   createCollabRestoreElements,
   isSceneHistoryDeltaRecordable,
@@ -104,12 +103,7 @@ const getCollabHistorySource = (
     return null;
   }
 
-  const activeRoomLink = collabAPI.getActiveRoomLink();
-  if (!activeRoomLink) {
-    return null;
-  }
-
-  return getCollaborationLinkData(activeRoomLink);
+  return collabAPI.getCollabRoomInfo();
 };
 
 const createHistoryThumbnail = async (

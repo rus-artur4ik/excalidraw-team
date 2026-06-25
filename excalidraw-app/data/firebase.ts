@@ -2,8 +2,8 @@ import { reconcileElements } from "@excalidraw/excalidraw";
 import { MIME_TYPES, toBrandedType } from "@excalidraw/common";
 import { decompressData } from "@excalidraw/excalidraw/data/encode";
 import {
-  encryptData,
   decryptData,
+  encryptData,
 } from "@excalidraw/excalidraw/data/encryption";
 import { restoreElements } from "@excalidraw/excalidraw/data/restore";
 import { getSceneVersion } from "@excalidraw/element";
@@ -11,18 +11,22 @@ import { initializeApp } from "firebase/app";
 import {
   getAuth,
   GoogleAuthProvider,
+  onAuthStateChanged,
   signInWithPopup,
   signOut,
-  onAuthStateChanged,
   type User,
 } from "firebase/auth";
+import type { Unsubscribe } from "firebase/firestore";
 import {
-  getFirestore,
+  Bytes,
   doc,
   getDoc,
+  getFirestore,
+  initializeFirestore,
   onSnapshot,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   runTransaction,
-  Bytes,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -39,6 +43,12 @@ import type {
   DataURL,
 } from "@excalidraw/excalidraw/types";
 
+import type {
+  SceneHistoryData,
+  SceneHistoryEntry,
+  SceneHistoryEntryKind,
+  SceneHistorySnapshot,
+} from "./SceneHistory";
 import {
   createSceneHistoryId,
   createSceneHistorySnapshot,
@@ -47,18 +57,10 @@ import {
   SCENE_HISTORY_VERSION,
 } from "./SceneHistory";
 
-import { getSyncableElements } from ".";
-
 import type { SyncableExcalidrawElement } from ".";
-import type {
-  SceneHistoryData,
-  SceneHistoryEntry,
-  SceneHistoryEntryKind,
-  SceneHistorySnapshot,
-} from "./SceneHistory";
+import { getSyncableElements } from ".";
 import type Portal from "../collab/Portal";
 import type { Socket } from "socket.io-client";
-import type { Unsubscribe } from "firebase/firestore";
 
 // private
 // -----------------------------------------------------------------------------
@@ -94,7 +96,16 @@ const _initializeFirebase = () => {
 
 const _getFirestore = () => {
   if (!firestore) {
-    firestore = getFirestore(_initializeFirebase());
+    const app = _initializeFirebase();
+    try {
+      firestore = initializeFirestore(app, {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+      });
+    } catch {
+      firestore = getFirestore(app);
+    }
   }
   return firestore;
 };

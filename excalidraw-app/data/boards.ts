@@ -1,7 +1,9 @@
+import type { DocumentData } from "firebase/firestore";
 import {
   arrayRemove,
   collection,
   doc,
+  documentId,
   getDoc,
   getDocs,
   query,
@@ -11,12 +13,10 @@ import {
   where,
 } from "firebase/firestore";
 
+import type { AppUser } from "./firebase";
 import { getCurrentAppUser, getFirestoreInstance } from "./firebase";
 
 import { generateCollaborationLinkData } from ".";
-
-import type { AppUser } from "./firebase";
-import type { DocumentData } from "firebase/firestore";
 
 export type ReadPolicy = "public" | "members";
 export type WritePolicy = "everyone" | "whitelist" | "owner";
@@ -91,12 +91,14 @@ export const loadBoard = async (
   roomId: string,
 ): Promise<{ board: Board; roomKey: string | null } | null> => {
   const db = getFirestoreInstance();
-  const snap = await getDoc(doc(db, "boards", roomId));
+  const [snap, keySnap] = await Promise.all([
+    getDoc(doc(db, "boards", roomId)),
+    getDoc(doc(db, "boardKeys", roomId)),
+  ]);
   if (!snap.exists()) {
     return null;
   }
   const board = { roomId, ...snap.data() } as Board;
-  const keySnap = await getDoc(doc(db, "boardKeys", roomId));
   const roomKey = keySnap.exists()
     ? (keySnap.data().roomKey as string) ?? null
     : null;
@@ -109,6 +111,34 @@ export const loadBoardKey = async (
   const db = getFirestoreInstance();
   const keySnap = await getDoc(doc(db, "boardKeys", roomId));
   return keySnap.exists() ? (keySnap.data().roomKey as string) ?? null : null;
+};
+
+const DOCUMENT_ID_IN_LIMIT = 10;
+
+export const loadBoardKeys = async (
+  roomIds: string[],
+): Promise<Map<string, string | null>> => {
+  const db = getFirestoreInstance();
+  const result = new Map<string, string | null>();
+  roomIds.forEach((id) => result.set(id, null));
+  const chunks: string[][] = [];
+  for (let i = 0; i < roomIds.length; i += DOCUMENT_ID_IN_LIMIT) {
+    chunks.push(roomIds.slice(i, i + DOCUMENT_ID_IN_LIMIT));
+  }
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      if (!chunk.length) {
+        return;
+      }
+      const snaps = await getDocs(
+        query(collection(db, "boardKeys"), where(documentId(), "in", chunk)),
+      );
+      snaps.forEach((d) =>
+        result.set(d.id, (d.data().roomKey as string) ?? null),
+      );
+    }),
+  );
+  return result;
 };
 
 export const updateBoardPolicy = async (
@@ -153,6 +183,22 @@ export const listMyTeamIds = async (): Promise<string[]> => {
     }
   }
   return found;
+};
+
+export const listMyTeams = async (): Promise<Team[]> => {
+  const db = getFirestoreInstance();
+  const snaps = await Promise.all(
+    KNOWN_TEAM_IDS.map((teamId) =>
+      getDoc(doc(db, "teams", teamId)).catch(() => null),
+    ),
+  );
+  const teams: Team[] = [];
+  snaps.forEach((snap, i) => {
+    if (snap && snap.exists()) {
+      teams.push({ teamId: KNOWN_TEAM_IDS[i], ...snap.data() } as Team);
+    }
+  });
+  return teams;
 };
 
 export const listTeamBoards = async (teamIds: string[]): Promise<Board[]> => {

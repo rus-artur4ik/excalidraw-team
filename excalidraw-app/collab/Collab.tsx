@@ -135,6 +135,7 @@ export interface CollabAPI {
   setUsername: CollabInstance["setUsername"];
   getUsername: CollabInstance["getUsername"];
   getActiveRoomLink: CollabInstance["getActiveRoomLink"];
+  getCollabRoomInfo: CollabInstance["getCollabRoomInfo"];
   setCollabError: CollabInstance["setErrorDialog"];
 }
 
@@ -261,6 +262,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       setUsername: this.setUsername,
       getUsername: this.getUsername,
       getActiveRoomLink: this.getActiveRoomLink,
+      getCollabRoomInfo: this.getCollabRoomInfo,
       setCollabError: this.setErrorDialog,
     };
 
@@ -1130,6 +1132,11 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   };
 
   getActiveRoomLink = () => this.state.activeRoomLink;
+
+  getCollabRoomInfo = (): { roomId: string; roomKey: string } | null => {
+    const { roomId, roomKey } = this.portal;
+    return roomId && roomKey ? { roomId, roomKey } : null;
+  };
 
   setErrorIndicator = (errorMessage: string | null) => {
     appJotaiStore.set(collabErrorIndicatorAtom, {
