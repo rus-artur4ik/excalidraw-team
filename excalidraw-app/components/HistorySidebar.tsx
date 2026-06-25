@@ -35,6 +35,8 @@ import {
   subscribeSceneHistoryFromFirebase,
 } from "../data/firebase";
 
+import { Spinner } from "./BusyButton";
+
 import "./HistorySidebar.scss";
 
 import type { CollabAPI } from "../collab/Collab";
@@ -518,6 +520,9 @@ export const HistorySidebar = ({
   const isMountedRef = useRef(false);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [previewEntryId, setPreviewEntryId] = useState<string | null>(null);
+  const [previewingEntryId, setPreviewingEntryId] = useState<string | null>(
+    null,
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
 
@@ -569,6 +574,7 @@ export const HistorySidebar = ({
 
   const cancelPreview = useCallback(() => {
     previewRequestIdRef.current++;
+    setPreviewingEntryId(null);
     const origin = previewOriginRef.current;
 
     if (!origin) {
@@ -621,6 +627,7 @@ export const HistorySidebar = ({
     }
 
     const requestId = ++previewRequestIdRef.current;
+    setPreviewingEntryId(entry.id);
 
     try {
       if (!previewOriginRef.current) {
@@ -664,6 +671,10 @@ export const HistorySidebar = ({
       console.error(error);
       cancelPreview();
       setErrorMessage("Version could not be previewed");
+    } finally {
+      if (isMountedRef.current && previewRequestIdRef.current === requestId) {
+        setPreviewingEntryId(null);
+      }
     }
   };
 
@@ -808,6 +819,9 @@ export const HistorySidebar = ({
                         Current
                       </span>
                     )}
+                    {previewingEntryId === entry.id && (
+                      <Spinner size={12} style={{ marginLeft: 6 }} />
+                    )}
                   </span>
                   <span className="history-sidebar__entry-summary">
                     {entry.summary}
@@ -841,7 +855,16 @@ export const HistorySidebar = ({
             onSelect={restoreSelectedEntry}
             disabled={isRestoring}
           >
-            Restore
+            {isRestoring ? (
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <Spinner size={13} />
+                Restoring…
+              </span>
+            ) : (
+              "Restore"
+            )}
           </Button>
         </div>
       )}

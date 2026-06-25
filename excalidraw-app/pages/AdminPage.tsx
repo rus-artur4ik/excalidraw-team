@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { BusyButton, Spinner } from "../components/BusyButton";
 import { useAuth } from "../auth/AuthContext";
 import { loadTeam, removeTeamMember, setTeamMember } from "../data/boards";
 import { navigate } from "../router";
@@ -23,6 +24,7 @@ export const AdminPage = () => {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<TeamRole>("editor");
   const [busy, setBusy] = useState(false);
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
 
   const reload = async () => setTeam(await loadTeam(TEAM_ID));
 
@@ -66,8 +68,9 @@ export const AdminPage = () => {
     ...team.viewerEmails.map((e) => ({ email: e, role: "viewer" as TeamRole })),
   ];
 
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(true);
+    setPendingKey(key);
     try {
       await fn();
       await reload();
@@ -76,6 +79,7 @@ export const AdminPage = () => {
       window.alert("Operation failed");
     } finally {
       setBusy(false);
+      setPendingKey(null);
     }
   };
 
@@ -102,18 +106,20 @@ export const AdminPage = () => {
           <option value="editor">read-write</option>
           <option value="viewer">read-only</option>
         </select>
-        <button
+        <BusyButton
           style={btn}
+          busy={pendingKey === "add"}
+          busyLabel="Adding…"
           disabled={busy || !email.trim()}
           onClick={() =>
-            run(async () => {
+            run("add", async () => {
               await setTeamMember(TEAM_ID, email.trim(), role);
               setEmail("");
             })
           }
         >
           Add
-        </button>
+        </BusyButton>
       </div>
 
       <h3>Admins</h3>
@@ -139,7 +145,7 @@ export const AdminPage = () => {
                   value={member.role}
                   disabled={busy}
                   onChange={(event) =>
-                    run(() =>
+                    run(`role:${member.email}`, () =>
                       setTeamMember(
                         TEAM_ID,
                         member.email,
@@ -151,15 +157,20 @@ export const AdminPage = () => {
                   <option value="editor">read-write</option>
                   <option value="viewer">read-only</option>
                 </select>
-                <button
+                {pendingKey === `role:${member.email}` && <Spinner size={13} />}
+                <BusyButton
                   style={linkBtn}
+                  busy={pendingKey === `remove:${member.email}`}
+                  busyLabel="Removing…"
                   disabled={busy}
                   onClick={() =>
-                    run(() => removeTeamMember(TEAM_ID, member.email))
+                    run(`remove:${member.email}`, () =>
+                      removeTeamMember(TEAM_ID, member.email),
+                    )
                   }
                 >
                   Remove
-                </button>
+                </BusyButton>
               </span>
             </li>
           ))}

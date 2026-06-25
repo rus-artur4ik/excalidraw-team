@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { BusyButton } from "../components/BusyButton";
 import { listMcpTokens, mintMcpToken, revokeMcpToken } from "../data/mcpTokens";
 
 import { btn, linkBtn } from "./pageStyles";
@@ -59,7 +60,12 @@ const tokenRow: CSSProperties = {
 
 const maskToken = (token: string) => `${token.slice(0, 8)}…${token.slice(-4)}`;
 
-type Snippet = { token: string; mcpUrl: string; serverName: string; config: string };
+type Snippet = {
+  token: string;
+  mcpUrl: string;
+  serverName: string;
+  config: string;
+};
 
 const buildCommands = (s: Snippet): { label: string; command: string }[] => {
   const auth = `Authorization: Bearer ${s.token}`;
@@ -111,7 +117,9 @@ const CopyButton = ({ value }: { value: string }) => {
 export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
   const [tokens, setTokens] = useState<McpTokenSummary[] | null>(null);
   const [snippet, setSnippet] = useState<Snippet | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [minting, setMinting] = useState(false);
+  const [revokingToken, setRevokingToken] = useState<string | null>(null);
+  const anyBusy = minting || revokingToken !== null;
 
   const refresh = () =>
     listMcpTokens()
@@ -126,7 +134,7 @@ export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
   }, []);
 
   const mint = async () => {
-    setBusy(true);
+    setMinting(true);
     try {
       const { token, mcpUrl, serverName, configSnippet } = await mintMcpToken();
       setSnippet({
@@ -140,12 +148,12 @@ export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
       console.error(error);
       window.alert("Failed to generate MCP token");
     } finally {
-      setBusy(false);
+      setMinting(false);
     }
   };
 
   const revoke = async (token: string) => {
-    setBusy(true);
+    setRevokingToken(token);
     try {
       await revokeMcpToken(token);
       await refresh();
@@ -153,7 +161,7 @@ export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
       console.error(error);
       window.alert("Failed to revoke MCP token");
     } finally {
-      setBusy(false);
+      setRevokingToken(null);
     }
   };
 
@@ -181,13 +189,15 @@ export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
                 <span style={{ color: "#aaa" }}>
                   {new Date(t.createdAt).toLocaleDateString()}
                 </span>
-                <button
+                <BusyButton
                   style={linkBtn}
-                  disabled={busy}
+                  busy={revokingToken === t.token}
+                  busyLabel="Revoking…"
+                  disabled={anyBusy}
                   onClick={() => revoke(t.token)}
                 >
                   Revoke
-                </button>
+                </BusyButton>
               </div>
             ))}
           </div>
@@ -196,7 +206,8 @@ export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
         {snippet && (
           <>
             <p style={{ margin: "16px 0 0", fontWeight: 600 }}>
-              New token created — it won't be shown again. Paste into your agent:
+              New token created — it won't be shown again. Paste into your
+              agent:
             </p>
 
             {buildCommands(snippet).map(({ label, command }) => (
@@ -230,9 +241,15 @@ export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
           <button style={linkBtn} onClick={onClose}>
             Close
           </button>
-          <button style={btn} disabled={busy} onClick={mint}>
+          <BusyButton
+            style={btn}
+            busy={minting}
+            busyLabel="Generating…"
+            disabled={anyBusy}
+            onClick={mint}
+          >
             Generate new token
-          </button>
+          </BusyButton>
         </div>
       </div>
     </div>

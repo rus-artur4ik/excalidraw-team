@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { BusyButton } from "../components/BusyButton";
 import { useAuth } from "../auth/AuthContext";
 import {
   createBoard,
@@ -47,6 +48,7 @@ export const HomePage = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [mcpOpen, setMcpOpen] = useState(false);
@@ -96,12 +98,19 @@ export const HomePage = () => {
     return (
       <div style={pageStyle}>
         <h1>Excalidraw Team</h1>
-        <button
+        <BusyButton
           style={btn}
-          onClick={() => signIn().catch((e) => console.error(e))}
+          busy={signingIn}
+          busyLabel="Signing in…"
+          onClick={() => {
+            setSigningIn(true);
+            signIn()
+              .catch((e) => console.error(e))
+              .finally(() => setSigningIn(false));
+          }}
         >
           Sign in with Google
-        </button>
+        </BusyButton>
       </div>
     );
   }
@@ -158,9 +167,14 @@ export const HomePage = () => {
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
-        <button style={btn} disabled={busy} onClick={handleCreate}>
+        <BusyButton
+          style={btn}
+          busy={busy}
+          busyLabel="Creating…"
+          onClick={handleCreate}
+        >
           Create board
-        </button>
+        </BusyButton>
       </div>
 
       {loadingBoards ? (
@@ -170,7 +184,9 @@ export const HomePage = () => {
           ))}
         </ul>
       ) : boards.length === 0 ? (
-        <p style={{ color: "#888" }}>No boards yet. Create your first one above.</p>
+        <p style={{ color: "#888" }}>
+          No boards yet. Create your first one above.
+        </p>
       ) : (
         <ul style={cardGrid}>
           {boards.map((board) => (
@@ -179,9 +195,7 @@ export const HomePage = () => {
               board={board}
               owned={board.ownerUid === user.uid}
               onAccess={() =>
-                setExpandedId(
-                  expandedId === board.roomId ? null : board.roomId,
-                )
+                setExpandedId(expandedId === board.roomId ? null : board.roomId)
               }
             />
           ))}

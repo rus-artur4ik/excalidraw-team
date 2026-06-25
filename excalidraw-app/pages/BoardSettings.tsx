@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { BusyButton } from "../components/BusyButton";
 import { DEFAULT_BOT_POLICY, updateBoardPolicy } from "../data/boards";
 
 import { btn, input } from "./pageStyles";
@@ -98,9 +99,9 @@ export const BoardSettings = ({
         value={editors}
         onChange={(event) => setEditors(event.target.value)}
       />
-      <button style={btn} disabled={busy} onClick={save}>
+      <BusyButton style={btn} busy={busy} busyLabel="Saving…" onClick={save}>
         Save
-      </button>
+      </BusyButton>
     </div>
   );
 };
