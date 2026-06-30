@@ -1,9 +1,8 @@
-import type { DocumentData } from "firebase/firestore";
 import {
   arrayRemove,
+  arrayUnion,
   collection,
   doc,
-  documentId,
   getDoc,
   getDocs,
   query,
@@ -18,25 +17,25 @@ import { getCurrentAppUser, getFirestoreInstance } from "./firebase";
 
 import { generateCollaborationLinkData } from ".";
 
-export type ReadPolicy = "public" | "members";
-export type WritePolicy = "everyone" | "whitelist" | "owner";
-export type BoardType = "personal" | "team";
-export type TeamRole = "editor" | "viewer";
+export type Visibility = "private" | "team" | "link";
+export type TeamRole = "admin" | "editor" | "viewer";
 export type BotPolicy = "none" | "read" | "write";
 
 export const DEFAULT_BOT_POLICY: BotPolicy = "write";
+export const TEAM_ID = "chats-team";
 
 export type Board = {
   roomId: string;
   ownerUid: string;
   ownerEmail: string | null;
   title: string;
-  type: BoardType;
-  teamId: string | null;
-  readPolicy: ReadPolicy;
-  writePolicy: WritePolicy;
+  visibility?: Visibility;
   editors: string[];
+  viewers: string[];
   botPolicy?: BotPolicy;
+  readPolicy?: "public" | "members";
+  writePolicy?: "everyone" | "whitelist" | "owner";
+  teamId?: string | null;
 };
 
 export type Team = {
@@ -47,15 +46,12 @@ export type Team = {
   viewerEmails: string[];
 };
 
-export const KNOWN_TEAM_IDS = ["chats-team"];
-
 export type CreateBoardInput = {
   title: string;
-  type?: BoardType;
-  teamId?: string | null;
-  readPolicy?: ReadPolicy;
-  writePolicy?: WritePolicy;
+  visibility?: Visibility;
   editors?: string[];
+  viewers?: string[];
+  botPolicy?: BotPolicy;
 };
 
 export const createBoard = async (
@@ -72,11 +68,10 @@ export const createBoard = async (
     ownerUid: user.uid,
     ownerEmail: user.email,
     title: input.title,
-    type: input.type ?? "personal",
-    teamId: input.teamId ?? null,
-    readPolicy: input.readPolicy ?? "members",
-    writePolicy: input.writePolicy ?? "owner",
+    visibility: input.visibility ?? "private",
     editors: input.editors ?? [],
+    viewers: input.viewers ?? [],
+    botPolicy: input.botPolicy ?? DEFAULT_BOT_POLICY,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -86,6 +81,13 @@ export const createBoard = async (
 
   return { roomId, roomKey };
 };
+
+const normalizeBoard = (roomId: string, data: any): Board => ({
+  roomId,
+  editors: [],
+  viewers: [],
+  ...data,
+});
 
 export const loadBoard = async (
   roomId: string,
@@ -98,53 +100,32 @@ export const loadBoard = async (
   if (!snap.exists()) {
     return null;
   }
-  const board = { roomId, ...snap.data() } as Board;
+  const board = normalizeBoard(roomId, snap.data());
   const roomKey = keySnap.exists()
     ? (keySnap.data().roomKey as string) ?? null
     : null;
   return { board, roomKey };
 };
 
-export const loadBoardKey = async (
-  roomId: string,
-): Promise<string | null> => {
-  const db = getFirestoreInstance();
-  const keySnap = await getDoc(doc(db, "boardKeys", roomId));
-  return keySnap.exists() ? (keySnap.data().roomKey as string) ?? null : null;
-};
-
-const DOCUMENT_ID_IN_LIMIT = 10;
-
 export const loadBoardKeys = async (
   roomIds: string[],
 ): Promise<Map<string, string | null>> => {
   const db = getFirestoreInstance();
-  const result = new Map<string, string | null>();
-  roomIds.forEach((id) => result.set(id, null));
-  const chunks: string[][] = [];
-  for (let i = 0; i < roomIds.length; i += DOCUMENT_ID_IN_LIMIT) {
-    chunks.push(roomIds.slice(i, i + DOCUMENT_ID_IN_LIMIT));
-  }
-  await Promise.all(
-    chunks.map(async (chunk) => {
-      if (!chunk.length) {
-        return;
-      }
-      const snaps = await getDocs(
-        query(collection(db, "boardKeys"), where(documentId(), "in", chunk)),
-      );
-      snaps.forEach((d) =>
-        result.set(d.id, (d.data().roomKey as string) ?? null),
-      );
+  const entries = await Promise.all(
+    roomIds.map(async (id) => {
+      const snap = await getDoc(doc(db, "boardKeys", id)).catch(() => null);
+      const roomKey =
+        snap && snap.exists() ? (snap.data().roomKey as string) ?? null : null;
+      return [id, roomKey] as const;
     }),
   );
-  return result;
+  return new Map(entries);
 };
 
-export const updateBoardPolicy = async (
+export const updateBoardAccess = async (
   roomId: string,
   patch: Partial<
-    Pick<Board, "readPolicy" | "writePolicy" | "editors" | "title" | "botPolicy">
+    Pick<Board, "visibility" | "editors" | "viewers" | "title" | "botPolicy">
   >,
 ) => {
   const db = getFirestoreInstance();
@@ -155,7 +136,17 @@ export const updateBoardPolicy = async (
 };
 
 const docsToBoards = (snaps: { id: string; data: () => any }[]): Board[] =>
-  snaps.map((d) => ({ roomId: d.id, ...d.data() } as Board));
+  snaps.map((d) => normalizeBoard(d.id, d.data()));
+
+const unionBoards = (...groups: Board[][]): Board[] => {
+  const byId = new Map<string, Board>();
+  for (const group of groups) {
+    for (const board of group) {
+      byId.set(board.roomId, board);
+    }
+  }
+  return [...byId.values()];
+};
 
 export const listMyBoards = async (): Promise<Board[]> => {
   const user = getCurrentAppUser();
@@ -169,81 +160,109 @@ export const listMyBoards = async (): Promise<Board[]> => {
   return docsToBoards(snaps.docs);
 };
 
-export const listMyTeamIds = async (): Promise<string[]> => {
+export const listInvitedBoards = async (email: string): Promise<Board[]> => {
   const db = getFirestoreInstance();
-  const found: string[] = [];
-  for (const teamId of KNOWN_TEAM_IDS) {
-    try {
-      const snap = await getDoc(doc(db, "teams", teamId));
-      if (snap.exists()) {
-        found.push(teamId);
-      }
-    } catch {
-      // not a member of this team — get() is denied by rules, skip it
-    }
-  }
-  return found;
-};
-
-export const listMyTeams = async (): Promise<Team[]> => {
-  const db = getFirestoreInstance();
-  const snaps = await Promise.all(
-    KNOWN_TEAM_IDS.map((teamId) =>
-      getDoc(doc(db, "teams", teamId)).catch(() => null),
+  const [asEditor, asViewer] = await Promise.all([
+    getDocs(
+      query(
+        collection(db, "boards"),
+        where("editors", "array-contains", email),
+      ),
     ),
-  );
-  const teams: Team[] = [];
-  snaps.forEach((snap, i) => {
-    if (snap && snap.exists()) {
-      teams.push({ teamId: KNOWN_TEAM_IDS[i], ...snap.data() } as Team);
-    }
-  });
-  return teams;
+    getDocs(
+      query(
+        collection(db, "boards"),
+        where("viewers", "array-contains", email),
+      ),
+    ),
+  ]);
+  return unionBoards(docsToBoards(asEditor.docs), docsToBoards(asViewer.docs));
 };
 
-export const listTeamBoards = async (teamIds: string[]): Promise<Board[]> => {
-  if (!teamIds.length) {
-    return [];
+export const listTeamBoards = async (): Promise<Board[]> => {
+  const db = getFirestoreInstance();
+  const [byVisibility, legacyByTeamId] = await Promise.all([
+    getDocs(query(collection(db, "boards"), where("visibility", "==", "team"))),
+    getDocs(query(collection(db, "boards"), where("teamId", "==", TEAM_ID))),
+  ]);
+  return unionBoards(
+    docsToBoards(byVisibility.docs),
+    docsToBoards(legacyByTeamId.docs),
+  );
+};
+
+export const loadTeam = async (): Promise<Team | null> => {
+  const db = getFirestoreInstance();
+  const snap = await getDoc(doc(db, "teams", TEAM_ID)).catch(() => null);
+  return snap && snap.exists()
+    ? ({ teamId: TEAM_ID, ...snap.data() } as Team)
+    : null;
+};
+
+export const createTeam = async (name: string): Promise<Team> => {
+  const user = getCurrentAppUser();
+  if (!user?.email) {
+    throw new Error("Must be signed in to create a team");
   }
-  const db = getFirestoreInstance();
-  const snaps = await getDocs(
-    query(collection(db, "boards"), where("teamId", "in", teamIds)),
-  );
-  return docsToBoards(snaps.docs);
+  const team = {
+    name: name.trim() || "Team",
+    admins: [user.email],
+    editorEmails: [] as string[],
+    viewerEmails: [] as string[],
+  };
+  await setDoc(doc(getFirestoreInstance(), "teams", TEAM_ID), team);
+  return { teamId: TEAM_ID, ...team };
 };
 
-export const loadTeam = async (teamId: string): Promise<Team | null> => {
+export const setTeamMember = async (email: string, role: TeamRole) => {
   const db = getFirestoreInstance();
-  const snap = await getDoc(doc(db, "teams", teamId));
-  return snap.exists() ? ({ teamId, ...snap.data() } as Team) : null;
-};
-
-export const setTeamMember = async (
-  teamId: string,
-  email: string,
-  role: TeamRole,
-) => {
-  const db = getFirestoreInstance();
-  const teamRef = doc(db, "teams", teamId);
-  const snap = await getDoc(teamRef);
-  const data: DocumentData = snap.data() ?? {};
-  const editorEmails = new Set<string>(data.editorEmails ?? []);
-  const viewerEmails = new Set<string>(data.viewerEmails ?? []);
-  editorEmails.delete(email);
-  viewerEmails.delete(email);
-  (role === "editor" ? editorEmails : viewerEmails).add(email);
-  await updateDoc(teamRef, {
-    editorEmails: [...editorEmails],
-    viewerEmails: [...viewerEmails],
+  await updateDoc(doc(db, "teams", TEAM_ID), {
+    admins: role === "admin" ? arrayUnion(email) : arrayRemove(email),
+    editorEmails: role === "editor" ? arrayUnion(email) : arrayRemove(email),
+    viewerEmails: role === "viewer" ? arrayUnion(email) : arrayRemove(email),
   });
 };
 
-export const removeTeamMember = async (teamId: string, email: string) => {
+export const removeTeamMember = async (email: string) => {
   const db = getFirestoreInstance();
-  await updateDoc(doc(db, "teams", teamId), {
+  await updateDoc(doc(db, "teams", TEAM_ID), {
+    admins: arrayRemove(email),
     editorEmails: arrayRemove(email),
     viewerEmails: arrayRemove(email),
   });
+};
+
+const has = (list: string[] | undefined, email: string | null): boolean =>
+  !!email && !!list?.includes(email);
+
+export const teamRoleOf = (
+  team: Team | null,
+  email: string | null,
+): TeamRole | null => {
+  if (has(team?.admins, email)) {
+    return "admin";
+  }
+  if (has(team?.editorEmails, email)) {
+    return "editor";
+  }
+  if (has(team?.viewerEmails, email)) {
+    return "viewer";
+  }
+  return null;
+};
+
+const legacyCanWrite = (
+  board: Board,
+  email: string | null,
+  team: Team | null,
+): boolean => {
+  const role = board.teamId ? teamRoleOf(team, email) : null;
+  const teamEditor = role === "admin" || role === "editor";
+  return (
+    board.writePolicy === "everyone" ||
+    (board.writePolicy === "whitelist" && has(board.editors, email)) ||
+    (board.writePolicy !== "owner" && teamEditor)
+  );
 };
 
 export const canWriteBoard = (
@@ -252,17 +271,17 @@ export const canWriteBoard = (
   team: Team | null,
 ): boolean => {
   const email = user?.email ?? null;
-  const isOwner = !!user && user.uid === board.ownerUid;
-  const isWhitelisted = !!email && (board.editors ?? []).includes(email);
-  const teamAdmin = !!team && !!email && (team.admins ?? []).includes(email);
-  const teamEditor =
-    teamAdmin ||
-    (!!team && !!email && (team.editorEmails ?? []).includes(email));
-  return (
-    board.writePolicy === "everyone" ||
-    isOwner ||
-    teamAdmin ||
-    (board.writePolicy === "whitelist" && isWhitelisted) ||
-    teamEditor
-  );
+  if (!!user && user.uid === board.ownerUid) {
+    return true;
+  }
+  if (board.visibility === undefined) {
+    return legacyCanWrite(board, email, team);
+  }
+  if (board.visibility === "team") {
+    const role = teamRoleOf(team, email);
+    if (role === "admin" || role === "editor") {
+      return true;
+    }
+  }
+  return has(board.editors, email);
 };

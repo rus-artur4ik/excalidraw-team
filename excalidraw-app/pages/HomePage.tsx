@@ -4,15 +4,17 @@ import { BusyButton } from "../components/BusyButton";
 import { useAuth } from "../auth/AuthContext";
 import {
   createBoard,
+  listInvitedBoards,
   listMyBoards,
-  listMyTeams,
   listTeamBoards,
   loadBoardKeys,
+  loadTeam,
+  teamRoleOf,
 } from "../data/boards";
 import { navigate } from "../router";
 
 import { BoardCard } from "./BoardCard";
-import { BoardSettings } from "./BoardSettings";
+import { ShareDialog } from "./BoardSettings";
 import { McpConfigDialog } from "./McpConfigDialog";
 import {
   badge,
@@ -41,6 +43,16 @@ const SkeletonCard = () => (
   </li>
 );
 
+const unionById = (...groups: Board[][]): Board[] => {
+  const byId = new Map<string, Board>();
+  for (const group of groups) {
+    for (const board of group) {
+      byId.set(board.roomId, board);
+    }
+  }
+  return [...byId.values()];
+};
+
 export const HomePage = () => {
   const { user, loading, signIn, signOut } = useAuth();
   const [boards, setBoards] = useState<Board[]>([]);
@@ -52,7 +64,7 @@ export const HomePage = () => {
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [shareBoard, setShareBoard] = useState<Board | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [mcpOpen, setMcpOpen] = useState(false);
 
@@ -66,23 +78,19 @@ export const HomePage = () => {
     let cancelled = false;
     setLoadingBoards(true);
     (async () => {
-      const minePromise = listMyBoards();
-      const teams = await listMyTeams();
-      const teamIds = teams.map((t) => t.teamId);
-      const [mine, team] = await Promise.all([
-        minePromise,
-        listTeamBoards(teamIds),
+      const team = await loadTeam();
+      const role = teamRoleOf(team, user.email);
+      const [mine, invited, teamBoards] = await Promise.all([
+        listMyBoards(),
+        user.email ? listInvitedBoards(user.email) : Promise.resolve([]),
+        role ? listTeamBoards() : Promise.resolve([]),
       ]);
       if (cancelled) {
         return;
       }
-      const byId = new Map<string, Board>();
-      [...mine, ...team].forEach((board) => byId.set(board.roomId, board));
-      const list = [...byId.values()];
+      const list = unionById(mine, invited, teamBoards);
       setBoards(list);
-      setIsAdmin(
-        teams.some((t) => user.email && t.admins.includes(user.email)),
-      );
+      setIsAdmin(role === "admin");
       const keys = await loadBoardKeys(list.map((board) => board.roomId));
       if (!cancelled) {
         setRoomKeys(keys);
@@ -100,7 +108,7 @@ export const HomePage = () => {
   }, [user, reloadKey]);
 
   if (loading) {
-    return <div style={pageStyle}>Loading…</div>;
+    return <div style={pageStyle}>Загрузка…</div>;
   }
 
   if (!user) {
@@ -110,7 +118,7 @@ export const HomePage = () => {
         <BusyButton
           style={btn}
           busy={signingIn}
-          busyLabel="Signing in…"
+          busyLabel="Вход…"
           onClick={() => {
             setSigningIn(true);
             signIn()
@@ -118,7 +126,7 @@ export const HomePage = () => {
               .finally(() => setSigningIn(false));
           }}
         >
-          Sign in with Google
+          Войти через Google
         </BusyButton>
       </div>
     );
@@ -133,13 +141,15 @@ export const HomePage = () => {
       navigate(`/b/${roomId}`);
     } catch (error) {
       console.error(error);
-      window.alert("Failed to create board");
+      window.alert("Не удалось создать доску");
     } finally {
       setBusy(false);
     }
   };
 
-  const expandedBoard = boards.find((board) => board.roomId === expandedId);
+  const canManage = (board: Board): boolean =>
+    board.ownerUid === user.uid ||
+    (isAdmin && (board.visibility === "team" || !!board.teamId));
 
   return (
     <div style={pageStyle}>
@@ -147,14 +157,14 @@ export const HomePage = () => {
         {`@keyframes boardSkeleton { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }`}
       </style>
       <header style={headerStyle}>
-        <h1>Your boards</h1>
+        <h1>Ваши доски</h1>
         <div>
           <button style={linkBtn} onClick={() => setMcpOpen(true)}>
-            Connect AI (MCP)
+            Подключить AI (MCP)
           </button>
           {isAdmin && (
             <button style={linkBtn} onClick={() => navigate("/admin")}>
-              Admin
+              Команда
             </button>
           )}
           <span style={{ marginLeft: 12 }}>
@@ -164,7 +174,7 @@ export const HomePage = () => {
             style={linkBtn}
             onClick={() => signOut().catch(console.error)}
           >
-            Sign out
+            Выйти
           </button>
         </div>
       </header>
@@ -172,17 +182,17 @@ export const HomePage = () => {
       <div style={{ display: "flex", gap: 8, margin: "16px 0" }}>
         <input
           style={input}
-          placeholder="New board title"
+          placeholder="Название новой доски"
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
         <BusyButton
           style={btn}
           busy={busy}
-          busyLabel="Creating…"
+          busyLabel="Создание…"
           onClick={handleCreate}
         >
-          Create board
+          Создать доску
         </BusyButton>
       </div>
 
@@ -193,35 +203,30 @@ export const HomePage = () => {
           ))}
         </ul>
       ) : boards.length === 0 ? (
-        <p style={{ color: "#888" }}>
-          No boards yet. Create your first one above.
-        </p>
+        <p style={{ color: "#888" }}>Досок пока нет. Создайте первую выше.</p>
       ) : (
         <ul style={cardGrid}>
           {boards.map((board) => (
             <BoardCard
               key={board.roomId}
               board={board}
-              owned={board.ownerUid === user.uid}
+              canManage={canManage(board)}
               roomKey={roomKeys.get(board.roomId) ?? null}
-              onAccess={() =>
-                setExpandedId(expandedId === board.roomId ? null : board.roomId)
-              }
+              onAccess={() => setShareBoard(board)}
             />
           ))}
         </ul>
       )}
 
-      {expandedBoard && expandedBoard.ownerUid === user.uid && (
-        <div style={{ marginTop: 16 }}>
-          <BoardSettings
-            board={expandedBoard}
-            onSaved={() => {
-              setExpandedId(null);
-              setReloadKey((key) => key + 1);
-            }}
-          />
-        </div>
+      {shareBoard && (
+        <ShareDialog
+          board={shareBoard}
+          onClose={() => setShareBoard(null)}
+          onSaved={() => {
+            setShareBoard(null);
+            setReloadKey((key) => key + 1);
+          }}
+        />
       )}
 
       {mcpOpen && <McpConfigDialog onClose={() => setMcpOpen(false)} />}

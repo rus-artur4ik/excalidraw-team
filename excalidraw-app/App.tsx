@@ -256,13 +256,23 @@ const initializeScene = async (opts: {
   if (!roomLinkData && boardRouteId) {
     try {
       const loaded = await loadBoard(boardRouteId);
-      if (loaded?.roomKey) {
+      if (loaded && loaded.roomKey != null) {
         roomLinkData = { roomId: boardRouteId, roomKey: loaded.roomKey };
-        const team = loaded.board.teamId
-          ? await loadTeam(loaded.board.teamId)
-          : null;
-        const canWrite = canWriteBoard(loaded.board, getCurrentAppUser(), team);
-        appJotaiStore.set(boardViewOnlyAtom, !canWrite);
+        try {
+          const team = await loadTeam();
+          const canWrite = canWriteBoard(
+            loaded.board,
+            getCurrentAppUser(),
+            team,
+          );
+          appJotaiStore.set(boardViewOnlyAtom, !canWrite);
+        } catch (accessError) {
+          console.error(
+            "Failed to resolve board write access; defaulting to view-only",
+            accessError,
+          );
+          appJotaiStore.set(boardViewOnlyAtom, true);
+        }
       }
     } catch (error: any) {
       console.error("Failed to load board", error);

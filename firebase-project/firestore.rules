@@ -6,8 +6,23 @@ service cloud.firestore {
     function email() { return request.auth.token.email; }
 
     function boardOf(id) { return get(/databases/$(database)/documents/boards/$(id)).data; }
-    function teamOf(tid) { return get(/databases/$(database)/documents/teams/$(tid)).data; }
-    function hasTeam(b) { return 'teamId' in b && b.teamId != null; }
+
+    // Single shared team, fixed document id.
+    function teamExists() { return exists(/databases/$(database)/documents/teams/chats-team); }
+    function teamData() { return get(/databases/$(database)/documents/teams/chats-team).data; }
+    function teamAdmin() {
+      return signedIn() && teamExists() && email() in teamData().admins;
+    }
+    function teamEditor() {
+      return signedIn() && teamExists() &&
+        (email() in teamData().admins || email() in teamData().editorEmails);
+    }
+    function teamMember() {
+      return signedIn() && teamExists() &&
+        (email() in teamData().admins ||
+         email() in teamData().editorEmails ||
+         email() in teamData().viewerEmails);
+    }
 
     // History documents are stored as `scenes/{roomId}~history...`; the owning
     // board is the segment before the first `~` (room ids never contain `~`).
@@ -17,29 +32,39 @@ service cloud.firestore {
     }
 
     function isOwner(b) { return signedIn() && request.auth.uid == b.ownerUid; }
-    function isWhitelistedEditor(b) { return signedIn() && 'editors' in b && email() in b.editors; }
-    function teamAdmin(b) {
-      return hasTeam(b) && signedIn() && email() in teamOf(b.teamId).admins;
+    function invitedEditor(b) { return signedIn() && 'editors' in b && email() in b.editors; }
+    function invitedViewer(b) { return signedIn() && 'viewers' in b && email() in b.viewers; }
+    function hasVis(b) { return 'visibility' in b; }
+
+    function newCanRead(b) {
+      return isOwner(b)
+        || b.visibility == 'link'
+        || (b.visibility == 'team' && teamMember())
+        || invitedEditor(b) || invitedViewer(b);
     }
-    function teamEditor(b) {
-      return hasTeam(b) && signedIn() &&
-        (email() in teamOf(b.teamId).admins || email() in teamOf(b.teamId).editorEmails);
-    }
-    function teamMember(b) {
-      return hasTeam(b) && signedIn() &&
-        (email() in teamOf(b.teamId).admins ||
-         email() in teamOf(b.teamId).editorEmails ||
-         email() in teamOf(b.teamId).viewerEmails);
+    function newCanWrite(b) {
+      return isOwner(b)
+        || (b.visibility == 'team' && teamEditor())
+        || invitedEditor(b);
     }
 
-    function canRead(b) {
-      return b.readPolicy == 'public' || isOwner(b) || isWhitelistedEditor(b) || teamMember(b);
+    function legacyTeam(b) { return 'teamId' in b && b.teamId != null; }
+    function legacyCanRead(b) {
+      return ('readPolicy' in b && b.readPolicy == 'public')
+        || isOwner(b) || invitedEditor(b)
+        || (legacyTeam(b) && teamMember());
     }
-    function canWrite(b) {
-      return b.writePolicy == 'everyone'
-        || isOwner(b) || teamAdmin(b)
-        || (b.writePolicy == 'whitelist' && isWhitelistedEditor(b))
-        || teamEditor(b);
+    function legacyCanWrite(b) {
+      return ('writePolicy' in b && b.writePolicy == 'everyone')
+        || isOwner(b)
+        || ('writePolicy' in b && b.writePolicy == 'whitelist' && invitedEditor(b))
+        || (legacyTeam(b) && 'writePolicy' in b && b.writePolicy != 'owner' && teamEditor());
+    }
+
+    function canRead(b) { return hasVis(b) ? newCanRead(b) : legacyCanRead(b); }
+    function canWrite(b) { return hasVis(b) ? newCanWrite(b) : legacyCanWrite(b); }
+    function boardTeamAdmin(b) {
+      return teamAdmin() && (hasVis(b) ? b.visibility == 'team' : legacyTeam(b));
     }
 
     match /boards/{id} {
@@ -47,20 +72,29 @@ service cloud.firestore {
       allow create: if signedIn()
                        && request.resource.data.ownerUid == request.auth.uid
                        && request.resource.data.ownerEmail == email()
-                       && (!hasTeam(request.resource.data)
-                           || teamAdmin(request.resource.data));
-      allow update: if (isOwner(resource.data) || teamAdmin(resource.data))
+                       && request.resource.data.visibility in ['private', 'team', 'link']
+                       && request.resource.data.editors is list
+                       && request.resource.data.viewers is list
+                       && request.resource.data.keys().hasOnly(
+                            ['ownerUid', 'ownerEmail', 'title', 'visibility',
+                             'editors', 'viewers', 'botPolicy',
+                             'createdAt', 'updatedAt']);
+      allow update: if (isOwner(resource.data) || boardTeamAdmin(resource.data))
                        && request.resource.data.diff(resource.data).affectedKeys()
-                            .hasOnly(['readPolicy', 'writePolicy', 'editors',
-                                      'title', 'updatedAt']);
-      allow delete: if isOwner(resource.data) || teamAdmin(resource.data);
+                            .hasOnly(['visibility', 'editors', 'viewers',
+                                      'botPolicy', 'title', 'updatedAt']);
+      allow delete: if isOwner(resource.data) || boardTeamAdmin(resource.data);
       allow list: if signedIn() &&
-        (resource.data.ownerUid == request.auth.uid || teamMember(resource.data));
+        (resource.data.ownerUid == request.auth.uid
+         || invitedEditor(resource.data) || invitedViewer(resource.data)
+         || (hasVis(resource.data)
+               ? (resource.data.visibility == 'team' && teamMember())
+               : (legacyTeam(resource.data) && teamMember())));
     }
 
     match /boardKeys/{id} {
       allow get:   if canRead(boardOf(id));
-      allow write: if isOwner(boardOf(id)) || teamAdmin(boardOf(id));
+      allow write: if isOwner(boardOf(id)) || boardTeamAdmin(boardOf(id));
     }
 
     match /boards/{id}/history/{entryId} {
@@ -81,14 +115,25 @@ service cloud.firestore {
         (email() in resource.data.admins ||
          email() in resource.data.editorEmails ||
          email() in resource.data.viewerEmails);
-      allow update: if signedIn() && email() in resource.data.admins;
-      allow create, delete, list: if false;
+      allow create: if signedIn()
+                       && id == 'chats-team'
+                       && request.resource.data.admins == [email()]
+                       && request.resource.data.editorEmails == []
+                       && request.resource.data.viewerEmails == []
+                       && request.resource.data.keys().hasOnly(
+                            ['name', 'admins', 'editorEmails', 'viewerEmails']);
+      allow update: if signedIn()
+                       && email() in resource.data.admins
+                       && request.resource.data.admins.size() >= 1
+                       && request.resource.data.diff(resource.data).affectedKeys()
+                            .hasOnly(['name', 'admins', 'editorEmails', 'viewerEmails']);
+      allow delete, list: if false;
     }
 
     match /mcpTokens/{token} { allow read, write: if false; }
 
     match /users/{uid} {
-      allow get:   if signedIn();
+      allow get:   if signedIn() && request.auth.uid == uid;
       allow write: if signedIn() && request.auth.uid == uid;
     }
   }

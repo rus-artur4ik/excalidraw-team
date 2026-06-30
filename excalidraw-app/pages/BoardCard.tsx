@@ -14,14 +14,24 @@ import {
 
 import type { Board } from "../data/boards";
 
+const visibilityLabel = (board: Board): string => {
+  if (board.visibility === "team" || board.teamId) {
+    return "👥 команда";
+  }
+  if (board.visibility === "link" || board.readPolicy === "public") {
+    return "🔗 по ссылке";
+  }
+  return "🔒 личная";
+};
+
 export const BoardCard = ({
   board,
-  owned,
+  canManage,
   onAccess,
   roomKey,
 }: {
   board: Board;
-  owned: boolean;
+  canManage: boolean;
   onAccess: () => void;
   roomKey: string | null;
 }) => {
@@ -87,11 +97,14 @@ export const BoardCard = ({
             flexWrap: "wrap",
           }}
         >
-          <span style={badge}>{board.type === "team" ? "team" : "personal"}</span>
+          <span style={badge}>{visibilityLabel(board)}</span>
           <span style={badge}>bot: {board.botPolicy ?? "write"}</span>
-          {owned && (
-            <button style={{ ...linkBtn, marginLeft: "auto" }} onClick={onAccess}>
-              Access
+          {canManage && (
+            <button
+              style={{ ...linkBtn, marginLeft: "auto" }}
+              onClick={onAccess}
+            >
+              Доступ
             </button>
           )}
         </div>

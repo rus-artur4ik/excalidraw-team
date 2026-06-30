@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 
 import { BusyButton, Spinner } from "../components/BusyButton";
 import { useAuth } from "../auth/AuthContext";
-import { loadTeam, removeTeamMember, setTeamMember } from "../data/boards";
+import {
+  createTeam,
+  loadTeam,
+  removeTeamMember,
+  setTeamMember,
+  teamRoleOf,
+} from "../data/boards";
 import { navigate } from "../router";
 
 import {
@@ -16,17 +22,26 @@ import {
 
 import type { Team, TeamRole } from "../data/boards";
 
-const TEAM_ID = "chats-team";
+const ROLE_LABEL: Record<TeamRole, string> = {
+  admin: "админ",
+  editor: "редактор",
+  viewer: "зритель",
+};
 
 export const AdminPage = () => {
   const { user, loading } = useAuth();
   const [team, setTeam] = useState<Team | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<TeamRole>("editor");
+  const [teamName, setTeamName] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
 
-  const reload = async () => setTeam(await loadTeam(TEAM_ID));
+  const reload = async () => {
+    setTeam(await loadTeam());
+    setLoaded(true);
+  };
 
   useEffect(() => {
     if (user) {
@@ -35,38 +50,21 @@ export const AdminPage = () => {
   }, [user]);
 
   if (loading) {
-    return <div style={pageStyle}>Loading…</div>;
+    return <div style={pageStyle}>Загрузка…</div>;
   }
   if (!user) {
     return (
       <div style={pageStyle}>
-        <p>Please sign in.</p>
+        <p>Войдите, пожалуйста.</p>
         <button style={linkBtn} onClick={() => navigate("/")}>
-          Home
+          На главную
         </button>
       </div>
     );
   }
-  if (!team) {
-    return <div style={pageStyle}>Loading team…</div>;
+  if (!loaded) {
+    return <div style={pageStyle}>Загрузка команды…</div>;
   }
-
-  const isAdmin = !!user.email && team.admins.includes(user.email);
-  if (!isAdmin) {
-    return (
-      <div style={pageStyle}>
-        <p>You are not an admin of this team.</p>
-        <button style={linkBtn} onClick={() => navigate("/")}>
-          Home
-        </button>
-      </div>
-    );
-  }
-
-  const members = [
-    ...team.editorEmails.map((e) => ({ email: e, role: "editor" as TeamRole })),
-    ...team.viewerEmails.map((e) => ({ email: e, role: "viewer" as TeamRole })),
-  ];
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(true);
@@ -76,19 +74,79 @@ export const AdminPage = () => {
       await reload();
     } catch (error) {
       console.error(error);
-      window.alert("Operation failed");
+      window.alert("Операция не удалась");
     } finally {
       setBusy(false);
       setPendingKey(null);
     }
   };
 
+  if (!team) {
+    return (
+      <div style={pageStyle}>
+        <header style={headerStyle}>
+          <h1>Команда</h1>
+          <button style={linkBtn} onClick={() => navigate("/")}>
+            На главную
+          </button>
+        </header>
+        <p style={{ color: "#555" }}>
+          Команда ещё не создана. Создайте её — вы станете администратором и
+          сможете добавлять участников.
+        </p>
+        <div style={{ display: "flex", gap: 8, margin: "16px 0" }}>
+          <input
+            style={input}
+            placeholder="Название команды"
+            value={teamName}
+            onChange={(event) => setTeamName(event.target.value)}
+          />
+          <BusyButton
+            style={btn}
+            busy={pendingKey === "create"}
+            busyLabel="Создание…"
+            disabled={busy || !teamName.trim()}
+            onClick={() =>
+              run("create", async () => {
+                await createTeam(teamName.trim());
+              })
+            }
+          >
+            Создать команду
+          </BusyButton>
+        </div>
+      </div>
+    );
+  }
+
+  const isAdmin = teamRoleOf(team, user.email) === "admin";
+  if (!isAdmin) {
+    return (
+      <div style={pageStyle}>
+        <header style={headerStyle}>
+          <h1>{team.name}</h1>
+          <button style={linkBtn} onClick={() => navigate("/")}>
+            На главную
+          </button>
+        </header>
+        <p>Вы участник этой команды, но не администратор.</p>
+      </div>
+    );
+  }
+
+  const members: { email: string; role: TeamRole }[] = [
+    ...team.admins.map((e) => ({ email: e, role: "admin" as TeamRole })),
+    ...team.editorEmails.map((e) => ({ email: e, role: "editor" as TeamRole })),
+    ...team.viewerEmails.map((e) => ({ email: e, role: "viewer" as TeamRole })),
+  ];
+  const adminCount = team.admins.length;
+
   return (
     <div style={pageStyle}>
       <header style={headerStyle}>
-        <h1>{team.name} — access</h1>
+        <h1>{team.name} — доступ</h1>
         <button style={linkBtn} onClick={() => navigate("/")}>
-          Home
+          На главную
         </button>
       </header>
 
@@ -103,79 +161,75 @@ export const AdminPage = () => {
           value={role}
           onChange={(event) => setRole(event.target.value as TeamRole)}
         >
-          <option value="editor">read-write</option>
-          <option value="viewer">read-only</option>
+          <option value="admin">админ</option>
+          <option value="editor">редактор</option>
+          <option value="viewer">зритель</option>
         </select>
         <BusyButton
           style={btn}
           busy={pendingKey === "add"}
-          busyLabel="Adding…"
+          busyLabel="Добавление…"
           disabled={busy || !email.trim()}
           onClick={() =>
             run("add", async () => {
-              await setTeamMember(TEAM_ID, email.trim(), role);
+              await setTeamMember(email.trim().toLowerCase(), role);
               setEmail("");
             })
           }
         >
-          Add
+          Добавить
         </BusyButton>
       </div>
 
-      <h3>Admins</h3>
+      <h3>Участники</h3>
       <ul style={{ listStyle: "none", padding: 0 }}>
-        {team.admins.map((adminEmail) => (
-          <li key={adminEmail} style={card}>
-            <span>{adminEmail}</span>
-            <span style={{ color: "#888" }}>admin</span>
-          </li>
-        ))}
-      </ul>
-
-      <h3>Members</h3>
-      {members.length === 0 ? (
-        <p>No members yet.</p>
-      ) : (
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {members.map((member) => (
+        {members.map((member) => {
+          const lastAdmin = member.role === "admin" && adminCount <= 1;
+          return (
             <li key={member.email} style={card}>
               <span>{member.email}</span>
               <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <select
-                  value={member.role}
-                  disabled={busy}
-                  onChange={(event) =>
-                    run(`role:${member.email}`, () =>
-                      setTeamMember(
-                        TEAM_ID,
-                        member.email,
-                        event.target.value as TeamRole,
-                      ),
-                    )
-                  }
-                >
-                  <option value="editor">read-write</option>
-                  <option value="viewer">read-only</option>
-                </select>
+                {lastAdmin ? (
+                  <span style={{ color: "#888" }}>{ROLE_LABEL.admin}</span>
+                ) : (
+                  <select
+                    value={member.role}
+                    disabled={busy}
+                    onChange={(event) =>
+                      run(`role:${member.email}`, () =>
+                        setTeamMember(
+                          member.email,
+                          event.target.value as TeamRole,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="admin">админ</option>
+                    <option value="editor">редактор</option>
+                    <option value="viewer">зритель</option>
+                  </select>
+                )}
                 {pendingKey === `role:${member.email}` && <Spinner size={13} />}
-                <BusyButton
-                  style={linkBtn}
-                  busy={pendingKey === `remove:${member.email}`}
-                  busyLabel="Removing…"
-                  disabled={busy}
-                  onClick={() =>
-                    run(`remove:${member.email}`, () =>
-                      removeTeamMember(TEAM_ID, member.email),
-                    )
-                  }
-                >
-                  Remove
-                </BusyButton>
+                {!lastAdmin && (
+                  <BusyButton
+                    style={linkBtn}
+                    busy={pendingKey === `remove:${member.email}`}
+                    busyLabel="Удаление…"
+                    disabled={busy}
+                    onClick={() =>
+                      run(`remove:${member.email}`, () =>
+                        removeTeamMember(member.email),
+                      )
+                    }
+                  >
+                    Удалить
+                  </BusyButton>
+                )}
               </span>
             </li>
-          ))}
-        </ul>
-      )}
+          );
+        })}
+      </ul>
     </div>
   );
 };
