@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { BusyButton } from "../components/BusyButton";
 import { useAuth } from "../auth/AuthContext";
 import {
-  createBoard,
   listInvitedBoards,
   listMyBoards,
   listTeamBoards,
@@ -14,7 +13,8 @@ import {
 import { navigate } from "../router";
 
 import { BoardCard } from "./BoardCard";
-import { ShareDialog } from "./BoardSettings";
+import { BoardSettingsDialog } from "./BoardSettings";
+import { CreateBoardDialog } from "./CreateBoardDialog";
 import { McpConfigDialog } from "./McpConfigDialog";
 import {
   badge,
@@ -22,7 +22,6 @@ import {
   btn,
   cardGrid,
   headerStyle,
-  input,
   linkBtn,
   pageStyle,
   skeletonShimmer,
@@ -61,10 +60,10 @@ export const HomePage = () => {
   );
   const [loadingBoards, setLoadingBoards] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [isTeamMember, setIsTeamMember] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
-  const [shareBoard, setShareBoard] = useState<Board | null>(null);
+  const [settingsBoard, setSettingsBoard] = useState<Board | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [mcpOpen, setMcpOpen] = useState(false);
 
@@ -72,6 +71,7 @@ export const HomePage = () => {
     if (!user) {
       setBoards([]);
       setIsAdmin(false);
+      setIsTeamMember(false);
       setLoadingBoards(false);
       return;
     }
@@ -91,6 +91,7 @@ export const HomePage = () => {
       const list = unionById(mine, invited, teamBoards);
       setBoards(list);
       setIsAdmin(role === "admin");
+      setIsTeamMember(!!role);
       const keys = await loadBoardKeys(list.map((board) => board.roomId));
       if (!cancelled) {
         setRoomKeys(keys);
@@ -132,21 +133,6 @@ export const HomePage = () => {
     );
   }
 
-  const handleCreate = async () => {
-    setBusy(true);
-    try {
-      const { roomId } = await createBoard({
-        title: title.trim() || "Untitled board",
-      });
-      navigate(`/b/${roomId}`);
-    } catch (error) {
-      console.error(error);
-      window.alert("Не удалось создать доску");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const canManage = (board: Board): boolean =>
     board.ownerUid === user.uid ||
     (isAdmin && (board.visibility === "team" || !!board.teamId));
@@ -179,21 +165,10 @@ export const HomePage = () => {
         </div>
       </header>
 
-      <div style={{ display: "flex", gap: 8, margin: "16px 0" }}>
-        <input
-          style={input}
-          placeholder="Название новой доски"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-        <BusyButton
-          style={btn}
-          busy={busy}
-          busyLabel="Создание…"
-          onClick={handleCreate}
-        >
-          Создать доску
-        </BusyButton>
+      <div style={{ display: "flex", margin: "16px 0" }}>
+        <button style={btn} onClick={() => setCreating(true)}>
+          + Новая доска
+        </button>
       </div>
 
       {loadingBoards ? (
@@ -203,7 +178,9 @@ export const HomePage = () => {
           ))}
         </ul>
       ) : boards.length === 0 ? (
-        <p style={{ color: "#888" }}>Досок пока нет. Создайте первую выше.</p>
+        <p style={{ color: "#888" }}>
+          Досок пока нет — нажмите «Новая доска», чтобы начать.
+        </p>
       ) : (
         <ul style={cardGrid}>
           {boards.map((board) => (
@@ -212,18 +189,25 @@ export const HomePage = () => {
               board={board}
               canManage={canManage(board)}
               roomKey={roomKeys.get(board.roomId) ?? null}
-              onAccess={() => setShareBoard(board)}
+              onSettings={() => setSettingsBoard(board)}
             />
           ))}
         </ul>
       )}
 
-      {shareBoard && (
-        <ShareDialog
-          board={shareBoard}
-          onClose={() => setShareBoard(null)}
+      {creating && (
+        <CreateBoardDialog
+          allowTeam={isTeamMember}
+          onClose={() => setCreating(false)}
+        />
+      )}
+
+      {settingsBoard && (
+        <BoardSettingsDialog
+          board={settingsBoard}
+          onClose={() => setSettingsBoard(null)}
           onSaved={() => {
-            setShareBoard(null);
+            setSettingsBoard(null);
             setReloadKey((key) => key + 1);
           }}
         />

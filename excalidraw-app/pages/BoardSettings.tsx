@@ -3,6 +3,7 @@ import { useState } from "react";
 import { BusyButton } from "../components/BusyButton";
 import { DEFAULT_BOT_POLICY, updateBoardAccess } from "../data/boards";
 
+import { BOT_POLICY_OPTIONS, VISIBILITY_OPTIONS } from "./boardOptions";
 import {
   btn,
   iconBtn,
@@ -20,24 +21,6 @@ import type { Board, BotPolicy, Visibility } from "../data/boards";
 
 type PersonRole = "editor" | "viewer";
 type Person = { email: string; role: PersonRole };
-
-const VISIBILITY_OPTIONS: {
-  value: Visibility;
-  label: string;
-  hint: string;
-}[] = [
-  { value: "private", label: "🔒 Личная", hint: "Только вы и приглашённые" },
-  {
-    value: "team",
-    label: "👥 Командная",
-    hint: "Вся команда: зрители смотрят, редакторы правят",
-  },
-  {
-    value: "link",
-    label: "🔗 По ссылке",
-    hint: "Любой по ссылке — только просмотр",
-  },
-];
 
 const initialVisibility = (board: Board): Visibility => {
   if (board.visibility) {
@@ -57,15 +40,16 @@ const initialPeople = (board: Board): Person[] => [
   ...(board.viewers ?? []).map((email) => ({ email, role: "viewer" as const })),
 ];
 
-export const ShareDialog = ({
+export const BoardSettingsDialog = ({
   board,
   onClose,
   onSaved,
 }: {
   board: Board;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (updated: Board) => void;
 }) => {
+  const [title, setTitle] = useState(board.title ?? "");
   const [visibility, setVisibility] = useState<Visibility>(
     initialVisibility(board),
   );
@@ -114,17 +98,32 @@ export const ShareDialog = ({
 
   const save = async () => {
     setBusy(true);
+    const cleanTitle = title.trim() || "Untitled board";
+    const editors = people
+      .filter((p) => p.role === "editor")
+      .map((p) => p.email);
+    const viewers = people
+      .filter((p) => p.role === "viewer")
+      .map((p) => p.email);
     try {
       await updateBoardAccess(board.roomId, {
+        title: cleanTitle,
         visibility,
         botPolicy,
-        editors: people.filter((p) => p.role === "editor").map((p) => p.email),
-        viewers: people.filter((p) => p.role === "viewer").map((p) => p.email),
+        editors,
+        viewers,
       });
-      onSaved();
+      onSaved({
+        ...board,
+        title: cleanTitle,
+        visibility,
+        botPolicy,
+        editors,
+        viewers,
+      });
     } catch (error) {
       console.error(error);
-      window.alert("Не удалось сохранить доступ к доске");
+      window.alert("Не удалось сохранить настройки доски");
     } finally {
       setBusy(false);
     }
@@ -140,18 +139,25 @@ export const ShareDialog = ({
             alignItems: "center",
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 18 }}>
-            Доступ: {board.title || "Без названия"}
-          </h2>
-          <button style={linkBtn} onClick={onClose}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Настройки доски</h2>
+          <button type="button" style={linkBtn} onClick={onClose}>
             Закрыть
           </button>
         </div>
+
+        <div style={sectionLabel}>Название</div>
+        <input
+          style={{ ...input, width: "100%", boxSizing: "border-box" }}
+          placeholder="Без названия"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+        />
 
         <div style={sectionLabel}>Видимость</div>
         <div style={segmentRow}>
           {VISIBILITY_OPTIONS.map((option) => (
             <button
+              type="button"
               key={option.value}
               style={segmentButton(visibility === option.value)}
               onClick={() => setVisibility(option.value)}
@@ -167,7 +173,7 @@ export const ShareDialog = ({
         {visibility === "link" && (
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <input style={input} readOnly value={boardUrl} />
-            <button style={btn} onClick={copyLink}>
+            <button type="button" style={btn} onClick={() => void copyLink()}>
               {copied ? "Скопировано" : "Копировать"}
             </button>
           </div>
@@ -192,6 +198,7 @@ export const ShareDialog = ({
                 <option value="viewer">зритель</option>
               </select>
               <button
+                type="button"
                 style={iconBtn}
                 onClick={() => removePerson(person.email)}
               >
@@ -215,7 +222,12 @@ export const ShareDialog = ({
             <option value="editor">редактор</option>
             <option value="viewer">зритель</option>
           </select>
-          <button style={btn} disabled={!newEmail.trim()} onClick={addPerson}>
+          <button
+            type="button"
+            style={btn}
+            disabled={!newEmail.trim()}
+            onClick={addPerson}
+          >
             Добавить
           </button>
         </div>
@@ -225,9 +237,11 @@ export const ShareDialog = ({
           value={botPolicy}
           onChange={(event) => setBotPolicy(event.target.value as BotPolicy)}
         >
-          <option value="none">нет доступа</option>
-          <option value="read">только чтение</option>
-          <option value="write">чтение и запись</option>
+          {BOT_POLICY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
 
         <div
@@ -238,14 +252,15 @@ export const ShareDialog = ({
             marginTop: 20,
           }}
         >
-          <button style={linkBtn} onClick={onClose}>
+          <button type="button" style={linkBtn} onClick={onClose}>
             Отмена
           </button>
           <BusyButton
+            type="button"
             style={btn}
             busy={busy}
             busyLabel="Сохранение…"
-            onClick={save}
+            onClick={() => void save()}
           >
             Сохранить
           </BusyButton>

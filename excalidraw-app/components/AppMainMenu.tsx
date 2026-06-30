@@ -2,6 +2,7 @@ import {
   loginIcon,
   ExcalLogo,
   eyeIcon,
+  settingsIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { MainMenu } from "@excalidraw/excalidraw/index";
 import React from "react";
@@ -10,10 +11,15 @@ import { isDevEnv } from "@excalidraw/common";
 
 import type { Theme } from "@excalidraw/element/types";
 
-import { useAtomValue } from "../app-jotai";
+import { useAtomValue, useSetAtom } from "../app-jotai";
 import { LanguageList } from "../app-language/LanguageList";
 import { isExcalidrawPlusSignedUser } from "../app_constants";
 import { currentUserAtom } from "../auth/atoms";
+import {
+  boardCanManageAtom,
+  boardSettingsOpenAtom,
+  currentBoardAtom,
+} from "../boardSession";
 import { signOutFromApp } from "../data/firebase";
 import { navigate } from "../router";
 
@@ -27,6 +33,9 @@ export const AppMainMenu: React.FC<{
   refresh: () => void;
 }> = React.memo((props) => {
   const user = useAtomValue(currentUserAtom);
+  const currentBoard = useAtomValue(currentBoardAtom);
+  const canManageBoard = useAtomValue(boardCanManageAtom);
+  const openBoardSettings = useSetAtom(boardSettingsOpenAtom);
   return (
     <MainMenu>
       {user && (
@@ -34,6 +43,14 @@ export const AppMainMenu: React.FC<{
           <MainMenu.Item icon={loginIcon} onSelect={() => navigate("/")}>
             My boards
           </MainMenu.Item>
+          {currentBoard && canManageBoard && (
+            <MainMenu.Item
+              icon={settingsIcon}
+              onSelect={() => openBoardSettings(true)}
+            >
+              Board settings
+            </MainMenu.Item>
+          )}
           <MainMenu.Item
             icon={loginIcon}
             onSelect={() => {

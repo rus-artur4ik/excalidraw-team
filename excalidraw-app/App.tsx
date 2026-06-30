@@ -132,8 +132,14 @@ import { isBrowserStorageStateNewer } from "./data/tabSync";
 import { ShareDialog, shareDialogStateAtom } from "./share/ShareDialog";
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
-import { boardViewOnlyAtom } from "./boardSession";
-import { canWriteBoard, loadBoard, loadTeam } from "./data/boards";
+import {
+  boardCanManageAtom,
+  boardSettingsOpenAtom,
+  boardViewOnlyAtom,
+  currentBoardAtom,
+} from "./boardSession";
+import { BoardSettingsDialog } from "./pages/BoardSettings";
+import { canWriteBoard, loadBoard, loadTeam, teamRoleOf } from "./data/boards";
 import { AdminPage } from "./pages/AdminPage";
 import { HomePage } from "./pages/HomePage";
 import { getBoardRouteId, usePathname } from "./router";
@@ -258,20 +264,25 @@ const initializeScene = async (opts: {
       const loaded = await loadBoard(boardRouteId);
       if (loaded && loaded.roomKey != null) {
         roomLinkData = { roomId: boardRouteId, roomKey: loaded.roomKey };
+        appJotaiStore.set(currentBoardAtom, loaded.board);
         try {
           const team = await loadTeam();
-          const canWrite = canWriteBoard(
-            loaded.board,
-            getCurrentAppUser(),
-            team,
-          );
+          const appUser = getCurrentAppUser();
+          const canWrite = canWriteBoard(loaded.board, appUser, team);
           appJotaiStore.set(boardViewOnlyAtom, !canWrite);
+          const role = teamRoleOf(team, appUser?.email ?? null);
+          const canManage =
+            (!!appUser && appUser.uid === loaded.board.ownerUid) ||
+            (role === "admin" &&
+              (loaded.board.visibility === "team" || !!loaded.board.teamId));
+          appJotaiStore.set(boardCanManageAtom, canManage);
         } catch (accessError) {
           console.error(
             "Failed to resolve board write access; defaulting to view-only",
             accessError,
           );
           appJotaiStore.set(boardViewOnlyAtom, true);
+          appJotaiStore.set(boardCanManageAtom, false);
         }
       }
     } catch (error: any) {
@@ -453,6 +464,10 @@ const ExcalidrawWrapper = () => {
   });
   const collabError = useAtomValue(collabErrorIndicatorAtom);
   const isBoardViewOnly = useAtomValue(boardViewOnlyAtom);
+  const [currentBoard, setCurrentBoard] = useAtom(currentBoardAtom);
+  const [boardSettingsOpen, setBoardSettingsOpen] = useAtom(
+    boardSettingsOpenAtom,
+  );
 
   useHandleLibrary({
     excalidrawAPI,
@@ -1100,6 +1115,17 @@ const ExcalidrawWrapper = () => {
             }
           }}
         />
+
+        {boardSettingsOpen && currentBoard && (
+          <BoardSettingsDialog
+            board={currentBoard}
+            onClose={() => setBoardSettingsOpen(false)}
+            onSaved={(updated) => {
+              setCurrentBoard(updated);
+              setBoardSettingsOpen(false);
+            }}
+          />
+        )}
 
         <AppSidebar
           collabAPI={collabAPI}

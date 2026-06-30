@@ -27,12 +27,12 @@ const visibilityLabel = (board: Board): string => {
 export const BoardCard = ({
   board,
   canManage,
-  onAccess,
+  onSettings,
   roomKey,
 }: {
   board: Board;
   canManage: boolean;
-  onAccess: () => void;
+  onSettings: () => void;
   roomKey: string | null;
 }) => {
   const [thumb, setThumb] = useState<string | null>(null);
@@ -102,9 +102,9 @@ export const BoardCard = ({
           {canManage && (
             <button
               style={{ ...linkBtn, marginLeft: "auto" }}
-              onClick={onAccess}
+              onClick={onSettings}
             >
-              Доступ
+              Настройки
             </button>
           )}
         </div>
