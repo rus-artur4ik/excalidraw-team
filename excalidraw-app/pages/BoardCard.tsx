@@ -1,27 +1,38 @@
+import {
+  LinkIcon,
+  LockedIcon,
+  settingsIcon,
+  usersIcon,
+} from "@excalidraw/excalidraw/components/icons";
+
 import { useEffect, useState } from "react";
+
+import { useAppT } from "../components/useAppT";
 
 import { loadBoardThumbnail } from "../data/boardThumbnail";
 import { navigate } from "../router";
 
-import {
-  badge,
-  boardCard,
-  linkBtn,
-  skeletonShimmer,
-  thumbBox,
-  thumbImg,
-} from "./pageStyles";
+import { botPolicyLabelKey } from "./boardOptions";
 
 import type { Board } from "../data/boards";
+import type { MouseEvent, ReactNode } from "react";
 
-const visibilityLabel = (board: Board): string => {
+const visibilityBadge = (
+  board: Board,
+): {
+  icon: ReactNode;
+  labelKey:
+    | "app.visibility.teamShort"
+    | "app.visibility.linkShort"
+    | "app.visibility.privateShort";
+} => {
   if (board.visibility === "team" || board.teamId) {
-    return "👥 команда";
+    return { icon: usersIcon, labelKey: "app.visibility.teamShort" };
   }
   if (board.visibility === "link" || board.readPolicy === "public") {
-    return "🔗 по ссылке";
+    return { icon: LinkIcon, labelKey: "app.visibility.linkShort" };
   }
-  return "🔒 личная";
+  return { icon: LockedIcon, labelKey: "app.visibility.privateShort" };
 };
 
 export const BoardCard = ({
@@ -35,11 +46,13 @@ export const BoardCard = ({
   onSettings: () => void;
   roomKey: string | null;
 }) => {
+  const t = useAppT();
   const [thumb, setThumb] = useState<string | null>(null);
-  const [loadingThumb, setLoadingThumb] = useState(true);
+  const [loadingThumb, setLoadingThumb] = useState(!!roomKey);
 
   useEffect(() => {
     if (!roomKey) {
+      setLoadingThumb(false);
       return;
     }
     let active = true;
@@ -61,50 +74,75 @@ export const BoardCard = ({
     };
   }, [board.roomId, roomKey]);
 
-  const open = () => navigate(`/b/${board.roomId}`);
+  const title = board.title || t("app.common.untitled");
+  const href = `/b/${board.roomId}`;
+  const open = (event: MouseEvent) => {
+    if (
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.button !== 0
+    ) {
+      return;
+    }
+    event.preventDefault();
+    navigate(href);
+  };
+  const vis = visibilityBadge(board);
 
   return (
-    <li style={boardCard}>
-      <div style={thumbBox} onClick={open}>
-        {thumb ? (
-          <img src={thumb} alt="" style={thumbImg} />
-        ) : loadingThumb ? (
-          <div style={skeletonShimmer} />
-        ) : (
-          <span style={{ color: "#bbb", fontSize: 13 }}>No preview yet</span>
-        )}
-      </div>
-      <div
-        style={{
-          padding: "10px 12px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
+    <li className={board.archived ? "exa-card exa-card--archived" : "exa-card"}>
+      <a
+        className="exa-card__open"
+        href={href}
+        onClick={open}
+        aria-label={t("app.card.open", { title })}
       >
-        <strong
+        <div className="exa-card__thumb">
+          {thumb ? (
+            <img className="exa-card__img" src={thumb} alt="" />
+          ) : loadingThumb ? (
+            <div className="exa-skeleton" />
+          ) : (
+            <span className="exa-card__placeholder">
+              {t("app.card.noPreview")}
+            </span>
+          )}
+        </div>
+      </a>
+      <div className="exa-card__body">
+        <a
+          className="exa-card__open exa-card__title"
+          href={href}
           onClick={open}
-          style={{ cursor: "pointer" }}
-          title={board.title || "Untitled"}
+          title={title}
         >
-          {board.title || "Untitled"}
-        </strong>
-        <div
-          style={{
-            display: "flex",
-            gap: 6,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={badge}>{visibilityLabel(board)}</span>
-          <span style={badge}>bot: {board.botPolicy ?? "write"}</span>
+          {title}
+        </a>
+        <div className="exa-card__badges">
+          {board.archived && (
+            <span className="exa-badge exa-badge--archived">
+              {t("app.card.archivedBadge")}
+            </span>
+          )}
+          <span className="exa-badge">
+            {vis.icon}
+            {t(vis.labelKey)}
+          </span>
+          <span className="exa-badge">
+            {t("app.card.bots", {
+              policy: t(botPolicyLabelKey(board.botPolicy)),
+            })}
+          </span>
           {canManage && (
             <button
-              style={{ ...linkBtn, marginLeft: "auto" }}
+              type="button"
+              className="exa-icon-btn exa-card__settings"
               onClick={onSettings}
+              aria-label={t("app.card.settings")}
+              title={t("app.card.settings")}
             >
-              Настройки
+              {settingsIcon}
             </button>
           )}
         </div>

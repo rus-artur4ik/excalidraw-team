@@ -82,7 +82,8 @@ service cloud.firestore {
       allow update: if (isOwner(resource.data) || boardTeamAdmin(resource.data))
                        && request.resource.data.diff(resource.data).affectedKeys()
                             .hasOnly(['visibility', 'editors', 'viewers',
-                                      'botPolicy', 'title', 'updatedAt']);
+                                      'botPolicy', 'title', 'updatedAt',
+                                      'archived', 'archivedAt']);
       allow delete: if isOwner(resource.data) || boardTeamAdmin(resource.data);
       allow list: if signedIn() &&
         (resource.data.ownerUid == request.auth.uid

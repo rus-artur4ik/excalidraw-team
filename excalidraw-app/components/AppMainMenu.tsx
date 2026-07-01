@@ -2,9 +2,11 @@ import {
   loginIcon,
   ExcalLogo,
   eyeIcon,
+  gridIcon,
   settingsIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { MainMenu } from "@excalidraw/excalidraw/index";
+import { useI18n } from "@excalidraw/excalidraw/i18n";
 import React from "react";
 
 import { isDevEnv } from "@excalidraw/common";
@@ -36,19 +38,20 @@ export const AppMainMenu: React.FC<{
   const currentBoard = useAtomValue(currentBoardAtom);
   const canManageBoard = useAtomValue(boardCanManageAtom);
   const openBoardSettings = useSetAtom(boardSettingsOpenAtom);
+  const { t } = useI18n();
   return (
     <MainMenu>
       {user && (
         <>
-          <MainMenu.Item icon={loginIcon} onSelect={() => navigate("/")}>
-            My boards
+          <MainMenu.Item icon={gridIcon} onSelect={() => navigate("/")}>
+            {t("app.menu.myBoards")}
           </MainMenu.Item>
           {currentBoard && canManageBoard && (
             <MainMenu.Item
               icon={settingsIcon}
               onSelect={() => openBoardSettings(true)}
             >
-              Board settings
+              {t("app.menu.boardSettings")}
             </MainMenu.Item>
           )}
           <MainMenu.Item
@@ -59,7 +62,9 @@ export const AppMainMenu: React.FC<{
                 .catch((error) => console.error(error));
             }}
           >
-            Sign out ({user.displayName ?? user.email})
+            {t("app.menu.signOut", {
+              user: user.displayName ?? user.email ?? "",
+            })}
           </MainMenu.Item>
           <MainMenu.Separator />
         </>

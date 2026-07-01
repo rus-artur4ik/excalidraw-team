@@ -79,6 +79,7 @@
 
   --space-factor: 0.25rem;
   --text-primary-color: var(--color-on-surface);
+  --text-muted-color: var(--color-gray-60);
 
   --color-selection: #6965db;
 
@@ -270,6 +271,7 @@
     --color-surface-mid: hsl(240 6% 10%);
     --color-surface-lowest: hsl(0, 0%, 7%);
     --color-on-surface: #e3e3e8;
+    --text-muted-color: var(--color-gray-50);
     --color-brand-hover: #bbb8ff;
     --color-on-primary-container: #e0dfff;
     --color-surface-primary-container: #403e6a;

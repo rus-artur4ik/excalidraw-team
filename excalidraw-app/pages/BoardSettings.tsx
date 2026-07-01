@@ -1,26 +1,30 @@
-import { useState } from "react";
+import { TrashIcon } from "@excalidraw/excalidraw/components/icons";
+import { FilledButton } from "@excalidraw/excalidraw/components/FilledButton";
+import { RadioGroup } from "@excalidraw/excalidraw/components/RadioGroup";
+import { TextField } from "@excalidraw/excalidraw/components/TextField";
 
-import { BusyButton } from "../components/BusyButton";
-import { DEFAULT_BOT_POLICY, updateBoardAccess } from "../data/boards";
+import { useMemo, useState } from "react";
+
+import { useAppT } from "../components/useAppT";
+
+import { AppConfirm } from "../components/AppConfirm";
+import { AppDialog } from "../components/AppDialog";
+import {
+  archiveBoard,
+  deleteBoardForever,
+  DEFAULT_BOT_POLICY,
+  unarchiveBoard,
+  updateBoardAccess,
+} from "../data/boards";
 
 import { BOT_POLICY_OPTIONS, VISIBILITY_OPTIONS } from "./boardOptions";
-import {
-  btn,
-  iconBtn,
-  input,
-  linkBtn,
-  modal,
-  modalOverlay,
-  personRow,
-  sectionLabel,
-  segmentButton,
-  segmentRow,
-} from "./pageStyles";
 
 import type { Board, BotPolicy, Visibility } from "../data/boards";
 
 type PersonRole = "editor" | "viewer";
 type Person = { email: string; role: PersonRole };
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const initialVisibility = (board: Board): Visibility => {
   if (board.visibility) {
@@ -40,35 +44,87 @@ const initialPeople = (board: Board): Person[] => [
   ...(board.viewers ?? []).map((email) => ({ email, role: "viewer" as const })),
 ];
 
+const peopleKey = (people: Person[]): string =>
+  people
+    .map((person) => `${person.email}:${person.role}`)
+    .sort()
+    .join("|");
+
 export const BoardSettingsDialog = ({
   board,
   onClose,
   onSaved,
+  onDeleted,
 }: {
   board: Board;
   onClose: () => void;
   onSaved: (updated: Board) => void;
+  onDeleted?: () => void;
 }) => {
-  const [title, setTitle] = useState(board.title ?? "");
-  const [visibility, setVisibility] = useState<Visibility>(
-    initialVisibility(board),
+  const t = useAppT();
+  const roleChoices = [
+    {
+      value: "editor" as const,
+      label: t("app.settings.roleEditor"),
+      ariaLabel: t("app.settings.roleEditor"),
+    },
+    {
+      value: "viewer" as const,
+      label: t("app.settings.roleViewer"),
+      ariaLabel: t("app.settings.roleViewer"),
+    },
+  ];
+
+  const baseline = useMemo(
+    () => ({
+      title: board.title ?? "",
+      visibility: initialVisibility(board),
+      botPolicy: board.botPolicy ?? DEFAULT_BOT_POLICY,
+      peopleKey: peopleKey(initialPeople(board)),
+    }),
+    [board],
   );
+
+  const [title, setTitle] = useState(baseline.title);
+  const [visibility, setVisibility] = useState<Visibility>(baseline.visibility);
   const [people, setPeople] = useState<Person[]>(initialPeople(board));
-  const [botPolicy, setBotPolicy] = useState<BotPolicy>(
-    board.botPolicy ?? DEFAULT_BOT_POLICY,
-  );
+  const [botPolicy, setBotPolicy] = useState<BotPolicy>(baseline.botPolicy);
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<PersonRole>("editor");
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const boardUrl = `${window.location.origin}/b/${board.roomId}`;
 
-  const addPerson = () => {
-    const email = newEmail.trim().toLowerCase();
-    if (!email) {
+  const dirty =
+    title.trim() !== baseline.title.trim() ||
+    visibility !== baseline.visibility ||
+    botPolicy !== baseline.botPolicy ||
+    peopleKey(people) !== baseline.peopleKey;
+
+  const requestClose = () => {
+    if (busy) {
       return;
     }
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onClose();
+  };
+
+  const addPerson = () => {
+    const email = newEmail.trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) {
+      setEmailError(t("app.settings.invalidEmail"));
+      return;
+    }
+    setEmailError(null);
     setPeople((prev) => [
       ...prev.filter((person) => person.email !== email),
       { email, role: newRole },
@@ -98,7 +154,8 @@ export const BoardSettingsDialog = ({
 
   const save = async () => {
     setBusy(true);
-    const cleanTitle = title.trim() || "Untitled board";
+    setSaveError(null);
+    const cleanTitle = title.trim() || t("app.common.untitled");
     const editors = people
       .filter((p) => p.role === "editor")
       .map((p) => p.email);
@@ -123,149 +180,284 @@ export const BoardSettingsDialog = ({
       });
     } catch (error) {
       console.error(error);
-      window.alert("Не удалось сохранить настройки доски");
-    } finally {
+      setSaveError(t("app.settings.saveError"));
       setBusy(false);
     }
   };
 
+  const archive = async () => {
+    setConfirmArchive(false);
+    setBusy(true);
+    setSaveError(null);
+    try {
+      await archiveBoard(board.roomId);
+      onSaved({ ...board, archived: true });
+    } catch (error) {
+      console.error(error);
+      setSaveError(t("app.settings.archiveError"));
+      setBusy(false);
+    }
+  };
+
+  const restore = async () => {
+    setBusy(true);
+    setSaveError(null);
+    try {
+      await unarchiveBoard(board.roomId);
+      onSaved({ ...board, archived: false });
+    } catch (error) {
+      console.error(error);
+      setSaveError(t("app.settings.restoreError"));
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setConfirmDelete(false);
+    setBusy(true);
+    setSaveError(null);
+    try {
+      await deleteBoardForever(board.roomId);
+      (onDeleted ?? onClose)();
+    } catch (error) {
+      console.error(error);
+      setSaveError(t("app.settings.deleteError"));
+      setBusy(false);
+    }
+  };
+
+  const hintKey = VISIBILITY_OPTIONS.find(
+    (o) => o.value === visibility,
+  )?.hintKey;
+
   return (
-    <div style={modalOverlay} onClick={onClose}>
-      <div style={modal} onClick={(event) => event.stopPropagation()}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 18 }}>Настройки доски</h2>
-          <button type="button" style={linkBtn} onClick={onClose}>
-            Закрыть
-          </button>
+    <>
+      <AppDialog
+        title={t("app.settings.title")}
+        size="small"
+        closeOnBackdrop={!busy}
+        onClose={requestClose}
+      >
+        <div className="exa-section">
+          <TextField
+            label={t("app.settings.name")}
+            value={title}
+            placeholder={t("app.common.untitled")}
+            onChange={setTitle}
+          />
         </div>
 
-        <div style={sectionLabel}>Название</div>
-        <input
-          style={{ ...input, width: "100%", boxSizing: "border-box" }}
-          placeholder="Без названия"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-
-        <div style={sectionLabel}>Видимость</div>
-        <div style={segmentRow}>
-          {VISIBILITY_OPTIONS.map((option) => (
-            <button
-              type="button"
-              key={option.value}
-              style={segmentButton(visibility === option.value)}
-              onClick={() => setVisibility(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="exa-section">
+          <span className="exa-label">{t("app.settings.visibility")}</span>
+          <RadioGroup
+            name="settings-visibility"
+            value={visibility}
+            choices={VISIBILITY_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+              ariaLabel: t(option.labelKey),
+            }))}
+            onChange={setVisibility}
+          />
+          {hintKey && <p className="exa-hint">{t(hintKey)}</p>}
         </div>
-        <p style={{ color: "#888", fontSize: 12, margin: "6px 2px 0" }}>
-          {VISIBILITY_OPTIONS.find((o) => o.value === visibility)?.hint}
-        </p>
 
         {visibility === "link" && (
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <input style={input} readOnly value={boardUrl} />
-            <button type="button" style={btn} onClick={() => void copyLink()}>
-              {copied ? "Скопировано" : "Копировать"}
-            </button>
+          <div className="exa-section">
+            <span className="exa-label">{t("app.settings.viewLink")}</span>
+            <div className="exa-row">
+              <TextField
+                value={boardUrl}
+                readonly
+                fullWidth
+                onChange={() => {}}
+              />
+              <FilledButton
+                variant="outlined"
+                color="muted"
+                label={copied ? t("app.common.copied") : t("app.common.copy")}
+                onClick={copyLink}
+              />
+            </div>
           </div>
         )}
 
-        <div style={sectionLabel}>Доступ по email</div>
-        {people.length === 0 ? (
-          <p style={{ color: "#888", fontSize: 13, margin: "2px 2px" }}>
-            Пока никто не приглашён.
-          </p>
-        ) : (
-          people.map((person) => (
-            <div key={person.email} style={personRow}>
-              <span style={{ flex: 1, fontSize: 14 }}>{person.email}</span>
-              <select
-                value={person.role}
-                onChange={(event) =>
-                  setRole(person.email, event.target.value as PersonRole)
-                }
-              >
-                <option value="editor">редактор</option>
-                <option value="viewer">зритель</option>
-              </select>
-              <button
-                type="button"
-                style={iconBtn}
-                onClick={() => removePerson(person.email)}
-              >
-                удалить
-              </button>
+        <div className="exa-section">
+          <span className="exa-label">{t("app.settings.peopleByEmail")}</span>
+          {people.length === 0 ? (
+            <p className="exa-hint">{t("app.settings.noPeople")}</p>
+          ) : (
+            <div className="exa-people">
+              {people.map((person) => (
+                <div key={person.email} className="exa-person-row">
+                  <span className="exa-person-row__email">{person.email}</span>
+                  <RadioGroup
+                    name={`role-${person.email}`}
+                    value={person.role}
+                    choices={roleChoices}
+                    onChange={(role) => setRole(person.email, role)}
+                  />
+                  <button
+                    type="button"
+                    className="exa-icon-btn"
+                    style={{ color: "var(--color-danger)" }}
+                    aria-label={t("app.settings.removeAccess", {
+                      email: person.email,
+                    })}
+                    title={t("app.settings.removeAccessShort")}
+                    onClick={() => removePerson(person.email)}
+                  >
+                    {TrashIcon}
+                  </button>
+                </div>
+              ))}
             </div>
-          ))
-        )}
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <input
-            style={input}
-            placeholder="email@example.com"
-            value={newEmail}
-            onChange={(event) => setNewEmail(event.target.value)}
-            onKeyDown={(event) => event.key === "Enter" && addPerson()}
+          )}
+          <div className="exa-row" style={{ marginTop: "0.5rem" }}>
+            <TextField
+              value={newEmail}
+              placeholder={t("app.settings.emailPlaceholder")}
+              fullWidth
+              onChange={(value) => {
+                setNewEmail(value);
+                if (emailError) {
+                  setEmailError(null);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  addPerson();
+                }
+              }}
+            />
+            <RadioGroup
+              name="new-person-role"
+              value={newRole}
+              choices={roleChoices}
+              onChange={setNewRole}
+            />
+            <FilledButton
+              variant="outlined"
+              label={t("app.common.add")}
+              disabled={!newEmail.trim()}
+              onClick={addPerson}
+            />
+          </div>
+          {emailError && (
+            <p className="exa-error-text" role="alert">
+              {emailError}
+            </p>
+          )}
+        </div>
+
+        <div className="exa-section">
+          <span className="exa-label">{t("app.settings.botAccess")}</span>
+          <RadioGroup
+            name="settings-bot-policy"
+            value={botPolicy}
+            choices={BOT_POLICY_OPTIONS.map((option) => ({
+              value: option.value,
+              label: t(option.labelKey),
+              ariaLabel: t(option.labelKey),
+            }))}
+            onChange={setBotPolicy}
           />
-          <select
-            value={newRole}
-            onChange={(event) => setNewRole(event.target.value as PersonRole)}
-          >
-            <option value="editor">редактор</option>
-            <option value="viewer">зритель</option>
-          </select>
-          <button
-            type="button"
-            style={btn}
-            disabled={!newEmail.trim()}
-            onClick={addPerson}
-          >
-            Добавить
-          </button>
         </div>
 
-        <div style={sectionLabel}>MCP-боты</div>
-        <select
-          value={botPolicy}
-          onChange={(event) => setBotPolicy(event.target.value as BotPolicy)}
-        >
-          {BOT_POLICY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 8,
-            marginTop: 20,
-          }}
-        >
-          <button type="button" style={linkBtn} onClick={onClose}>
-            Отмена
-          </button>
-          <BusyButton
-            type="button"
-            style={btn}
-            busy={busy}
-            busyLabel="Сохранение…"
-            onClick={() => void save()}
-          >
-            Сохранить
-          </BusyButton>
+        <div className="exa-section">
+          <span className="exa-label">{t("app.settings.manageBoard")}</span>
+          {board.archived ? (
+            <>
+              <p className="exa-hint">{t("app.settings.archivedHint")}</p>
+              <FilledButton
+                variant="outlined"
+                label={t("app.settings.restore")}
+                status={busy ? "loading" : undefined}
+                onClick={restore}
+              />
+            </>
+          ) : (
+            <>
+              <p className="exa-hint">{t("app.settings.archiveHint")}</p>
+              <FilledButton
+                variant="outlined"
+                label={t("app.settings.archive")}
+                disabled={busy}
+                onClick={() => setConfirmArchive(true)}
+              />
+            </>
+          )}
         </div>
-      </div>
-    </div>
+
+        {board.archived && (
+          <div className="exa-section exa-danger-zone">
+            <span className="exa-label exa-danger-zone__title">
+              {t("app.settings.dangerZone")}
+            </span>
+            <p className="exa-hint">{t("app.settings.deleteHint")}</p>
+            <FilledButton
+              variant="outlined"
+              color="danger"
+              label={t("app.settings.deleteForever")}
+              disabled={busy}
+              onClick={() => setConfirmDelete(true)}
+            />
+          </div>
+        )}
+
+        {saveError && (
+          <p className="exa-error-text" role="alert">
+            {saveError}
+          </p>
+        )}
+
+        <div className="exa-dialog-footer">
+          <FilledButton
+            variant="outlined"
+            color="muted"
+            label={t("app.common.cancel")}
+            disabled={busy}
+            onClick={requestClose}
+          />
+          <FilledButton label={t("app.common.save")} onClick={save} />
+        </div>
+      </AppDialog>
+
+      {confirmDiscard && (
+        <AppConfirm
+          title={t("app.settings.discardTitle")}
+          message={t("app.settings.discardMessage")}
+          confirmLabel={t("app.settings.discardConfirm")}
+          cancelLabel={t("app.settings.discardCancel")}
+          danger
+          onConfirm={onClose}
+          onClose={() => setConfirmDiscard(false)}
+        />
+      )}
+
+      {confirmArchive && (
+        <AppConfirm
+          title={t("app.settings.archiveTitle")}
+          message={t("app.settings.archiveMessage")}
+          confirmLabel={t("app.settings.archive")}
+          danger
+          onConfirm={archive}
+          onClose={() => setConfirmArchive(false)}
+        />
+      )}
+
+      {confirmDelete && (
+        <AppConfirm
+          title={t("app.settings.deleteTitle")}
+          message={t("app.settings.deleteMessage", {
+            title: board.title || t("app.common.untitled"),
+          })}
+          confirmLabel={t("app.settings.deleteForever")}
+          danger
+          onConfirm={remove}
+          onClose={() => setConfirmDelete(false)}
+        />
+      )}
+    </>
   );
 };

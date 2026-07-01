@@ -2,6 +2,8 @@ import {
   arrayRemove,
   arrayUnion,
   collection,
+  deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -12,8 +14,15 @@ import {
   where,
 } from "firebase/firestore";
 
+import { deleteBoardThumbnail } from "./boardThumbnail";
+
 import type { AppUser } from "./firebase";
-import { getCurrentAppUser, getFirestoreInstance } from "./firebase";
+import {
+  deleteBoardScenes,
+  deleteRoomFiles,
+  getCurrentAppUser,
+  getFirestoreInstance,
+} from "./firebase";
 
 import { generateCollaborationLinkData } from ".";
 
@@ -33,6 +42,7 @@ export type Board = {
   editors: string[];
   viewers: string[];
   botPolicy?: BotPolicy;
+  archived?: boolean;
   readPolicy?: "public" | "members";
   writePolicy?: "everyone" | "whitelist" | "owner";
   teamId?: string | null;
@@ -133,6 +143,37 @@ export const updateBoardAccess = async (
     ...patch,
     updatedAt: serverTimestamp(),
   });
+};
+
+export const archiveBoard = async (roomId: string) => {
+  const db = getFirestoreInstance();
+  await updateDoc(doc(db, "boards", roomId), {
+    archived: true,
+    archivedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+};
+
+export const unarchiveBoard = async (roomId: string) => {
+  const db = getFirestoreInstance();
+  await updateDoc(doc(db, "boards", roomId), {
+    archived: false,
+    archivedAt: deleteField(),
+    updatedAt: serverTimestamp(),
+  });
+};
+
+export const deleteBoardForever = async (roomId: string) => {
+  const db = getFirestoreInstance();
+  await deleteBoardScenes(roomId);
+  await deleteBoardThumbnail(roomId);
+  try {
+    await deleteRoomFiles(roomId);
+  } catch (error) {
+    console.error("Failed to delete room files", error);
+  }
+  await deleteDoc(doc(db, "boardKeys", roomId));
+  await deleteDoc(doc(db, "boards", roomId));
 };
 
 const docsToBoards = (snaps: { id: string; data: () => any }[]): Board[] =>

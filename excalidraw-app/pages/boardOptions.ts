@@ -1,25 +1,36 @@
-import type { BotPolicy, Visibility } from "../data/boards";
+import type { BotPolicy } from "../data/boards";
 
-export const VISIBILITY_OPTIONS: {
-  value: Visibility;
-  label: string;
-  hint: string;
-}[] = [
-  { value: "private", label: "🔒 Личная", hint: "Только вы и приглашённые" },
+export const VISIBILITY_OPTIONS = [
+  {
+    value: "private",
+    labelKey: "app.visibility.privateLabel",
+    shortKey: "app.visibility.privateShort",
+    hintKey: "app.visibility.privateHint",
+  },
   {
     value: "team",
-    label: "👥 Командная",
-    hint: "Вся команда: зрители смотрят, редакторы правят",
+    labelKey: "app.visibility.teamLabel",
+    shortKey: "app.visibility.teamShort",
+    hintKey: "app.visibility.teamHint",
   },
   {
     value: "link",
-    label: "🔗 По ссылке",
-    hint: "Любой по ссылке — только просмотр",
+    labelKey: "app.visibility.linkLabel",
+    shortKey: "app.visibility.linkShort",
+    hintKey: "app.visibility.linkHint",
   },
-];
+] as const;
 
-export const BOT_POLICY_OPTIONS: { value: BotPolicy; label: string }[] = [
-  { value: "none", label: "нет доступа" },
-  { value: "read", label: "только чтение" },
-  { value: "write", label: "чтение и запись" },
-];
+export const BOT_POLICY_OPTIONS = [
+  { value: "none", labelKey: "app.bot.none" },
+  { value: "read", labelKey: "app.bot.read" },
+  { value: "write", labelKey: "app.bot.write" },
+] as const;
+
+type BotPolicyLabelKey = typeof BOT_POLICY_OPTIONS[number]["labelKey"];
+
+export const botPolicyLabelKey = (
+  policy: BotPolicy | undefined,
+): BotPolicyLabelKey =>
+  BOT_POLICY_OPTIONS.find((option) => option.value === (policy ?? "write"))
+    ?.labelKey ?? "app.bot.write";

@@ -85,6 +85,8 @@ import {
   saveToFirebase,
 } from "../data/firebase";
 import { createSceneHistoryId } from "../data/SceneHistory";
+import { createHistoryThumbnail } from "../data/sceneHistoryThumbnail";
+import { deriveChangeFocusFromElementDiff } from "../data/historyThumbnailFocus";
 import {
   renderBoardThumbnail,
   saveBoardThumbnail,
@@ -158,6 +160,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   // Only the client that originated a change records it in shared history, so
   // remote-applied updates aren't misattributed to whoever persists them first.
   private hasLocalSceneChangeForHistory = false;
+  private lastHistoryElements: readonly OrderedExcalidrawElement[] = [];
   private syncLocks = new Set<string>();
 
   constructor(props: CollabProps) {
@@ -359,7 +362,20 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
         if (isLocalSceneChange && this.portal.roomId && this.portal.roomKey) {
           const appUser = getCurrentAppUser();
+          const historyAppState = this.excalidrawAPI.getAppState();
+          const historyElements =
+            storedElements as readonly OrderedExcalidrawElement[];
           try {
+            const focus = deriveChangeFocusFromElementDiff(
+              this.lastHistoryElements,
+              historyElements,
+            );
+            const thumbnail = await createHistoryThumbnail(
+              historyElements,
+              historyAppState,
+              this.excalidrawAPI.getFiles(),
+              focus,
+            );
             await appendSceneHistoryToFirebase({
               roomId: this.portal.roomId,
               roomKey: this.portal.roomKey,
@@ -369,11 +385,13 @@ class Collab extends PureComponent<CollabProps, CollabState> {
                 appUser?.email ||
                 this.getUsername() ||
                 "Гость",
-              elements: storedElements as readonly OrderedExcalidrawElement[],
-              appState: this.excalidrawAPI.getAppState(),
+              elements: historyElements,
+              appState: historyAppState,
+              thumbnail,
               kind: restoreSourceId ? "restore" : "change",
               restoreSourceId: restoreSourceId ?? undefined,
             });
+            this.lastHistoryElements = historyElements;
           } catch (error: any) {
             console.error("Failed to save shared scene history:", error);
           }
@@ -808,6 +826,8 @@ class Collab extends PureComponent<CollabProps, CollabState> {
           this.setLastBroadcastedOrReceivedSceneVersion(
             getSceneVersion(elements),
           );
+          this.lastHistoryElements =
+            elements as readonly OrderedExcalidrawElement[];
 
           return {
             elements,

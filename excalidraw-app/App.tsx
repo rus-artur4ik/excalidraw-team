@@ -137,12 +137,14 @@ import {
   boardSettingsOpenAtom,
   boardViewOnlyAtom,
   currentBoardAtom,
+  sharedSceneRoomAtom,
 } from "./boardSession";
 import { BoardSettingsDialog } from "./pages/BoardSettings";
 import { canWriteBoard, loadBoard, loadTeam, teamRoleOf } from "./data/boards";
 import { AdminPage } from "./pages/AdminPage";
 import { HomePage } from "./pages/HomePage";
-import { getBoardRouteId, usePathname } from "./router";
+import { AppShell } from "./components/AppShell";
+import { getBoardRouteId, navigate, usePathname } from "./router";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
@@ -156,6 +158,7 @@ import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 
 import "./index.scss";
 
+import { ArchivedBoardBanner } from "./components/ArchivedBoardBanner";
 import { ExcalidrawPlusPromoBanner } from "./components/ExcalidrawPlusPromoBanner";
 import { AppSidebar } from "./components/AppSidebar";
 
@@ -259,11 +262,13 @@ const initializeScene = async (opts: {
 
   let roomLinkData = getCollaborationLinkData(window.location.href);
   const boardRouteId = getBoardRouteId(window.location.pathname);
+  appJotaiStore.set(sharedSceneRoomAtom, roomLinkData);
   if (!roomLinkData && boardRouteId) {
     try {
       const loaded = await loadBoard(boardRouteId);
       if (loaded && loaded.roomKey != null) {
         roomLinkData = { roomId: boardRouteId, roomKey: loaded.roomKey };
+        appJotaiStore.set(sharedSceneRoomAtom, roomLinkData);
         appJotaiStore.set(currentBoardAtom, loaded.board);
         try {
           const team = await loadTeam();
@@ -1116,6 +1121,15 @@ const ExcalidrawWrapper = () => {
           }}
         />
 
+        {currentBoard?.archived && (
+          <ArchivedBoardBanner
+            roomId={currentBoard.roomId}
+            onRestored={() =>
+              setCurrentBoard({ ...currentBoard, archived: false })
+            }
+          />
+        )}
+
         {boardSettingsOpen && currentBoard && (
           <BoardSettingsDialog
             board={currentBoard}
@@ -1123,6 +1137,11 @@ const ExcalidrawWrapper = () => {
             onSaved={(updated) => {
               setCurrentBoard(updated);
               setBoardSettingsOpen(false);
+            }}
+            onDeleted={() => {
+              setBoardSettingsOpen(false);
+              setCurrentBoard(null);
+              navigate("/");
             }}
           />
         )}
@@ -1349,7 +1368,13 @@ const RoutedApp = () => {
   // editor mounts only once auth is resolved, so a private board's key fetch
   // sees the restored user instead of racing against session restore
   if (authLoading) {
-    return <div style={{ padding: 24 }}>Loading…</div>;
+    return (
+      <AppShell>
+        <div className="exa-page">
+          <p className="exa-loading-text">{t("app.common.loading")}</p>
+        </div>
+      </AppShell>
+    );
   }
 
   return (

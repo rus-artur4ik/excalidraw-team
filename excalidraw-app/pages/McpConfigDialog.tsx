@@ -1,62 +1,15 @@
+import { FilledButton } from "@excalidraw/excalidraw/components/FilledButton";
+import Spinner from "@excalidraw/excalidraw/components/Spinner";
+
 import { useEffect, useState } from "react";
 
-import { BusyButton } from "../components/BusyButton";
+import { useAppT } from "../components/useAppT";
+
+import { AppConfirm } from "../components/AppConfirm";
+import { AppDialog } from "../components/AppDialog";
 import { listMcpTokens, mintMcpToken, revokeMcpToken } from "../data/mcpTokens";
 
-import { btn, linkBtn } from "./pageStyles";
-
 import type { McpTokenSummary } from "../data/mcpTokens";
-import type { CSSProperties } from "react";
-
-const overlay: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0, 0, 0, 0.5)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-
-const modal: CSSProperties = {
-  background: "#fff",
-  color: "#1b1b1f",
-  borderRadius: 12,
-  padding: 20,
-  width: "min(620px, 92vw)",
-  maxHeight: "86vh",
-  overflowY: "auto",
-  boxShadow: "0 10px 40px rgba(0, 0, 0, 0.35)",
-};
-
-const pre: CSSProperties = {
-  margin: 0,
-  background: "#0f1117",
-  color: "#e6e6e6",
-  borderRadius: 8,
-  padding: "10px 12px",
-  fontFamily: "monospace",
-  fontSize: 12.5,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-all",
-  boxSizing: "border-box",
-};
-
-const blockHeader: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  margin: "14px 0 6px",
-};
-
-const tokenRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  padding: "6px 0",
-  borderTop: "1px solid #eee",
-  fontSize: 13,
-};
 
 const maskToken = (token: string) => `${token.slice(0, 8)}…${token.slice(-4)}`;
 
@@ -94,39 +47,54 @@ EOF`,
   ];
 };
 
-const CopyButton = ({ value }: { value: string }) => {
+const CopyButton = ({ value, what }: { value: string; what: string }) => {
+  const t = useAppT();
   const [copied, setCopied] = useState(false);
   return (
-    <button
-      style={linkBtn}
+    <FilledButton
+      variant="outlined"
+      color="muted"
+      label={
+        copied
+          ? t("app.mcp.copiedWhat", { what })
+          : t("app.mcp.copyWhat", { what })
+      }
       onClick={() => {
         navigator.clipboard
           ?.writeText(value)
           .then(() => {
             setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            window.setTimeout(() => setCopied(false), 2000);
           })
-          .catch(() => {});
+          .catch((error) => console.error(error));
       }}
     >
-      {copied ? "Copied ✓" : "Copy"}
-    </button>
+      {copied ? t("app.common.copied") : t("app.common.copy")}
+    </FilledButton>
   );
 };
 
 export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
+  const t = useAppT();
   const [tokens, setTokens] = useState<McpTokenSummary[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [snippet, setSnippet] = useState<Snippet | null>(null);
   const [minting, setMinting] = useState(false);
+  const [mintError, setMintError] = useState<string | null>(null);
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
   const anyBusy = minting || revokingToken !== null;
 
   const refresh = () =>
     listMcpTokens()
-      .then(setTokens)
+      .then((list) => {
+        setTokens(list);
+        setLoadError(false);
+      })
       .catch((error) => {
         console.error(error);
         setTokens([]);
+        setLoadError(true);
       });
 
   useEffect(() => {
@@ -135,6 +103,7 @@ export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
 
   const mint = async () => {
     setMinting(true);
+    setMintError(null);
     try {
       const { token, mcpUrl, serverName, configSnippet } = await mintMcpToken();
       setSnippet({
@@ -146,58 +115,82 @@ export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
       await refresh();
     } catch (error) {
       console.error(error);
-      window.alert("Failed to generate MCP token");
+      setMintError(t("app.mcp.mintError"));
     } finally {
       setMinting(false);
     }
   };
 
-  const revoke = async (token: string) => {
+  const doRevoke = async (token: string) => {
+    setRevokeTarget(null);
     setRevokingToken(token);
     try {
       await revokeMcpToken(token);
       await refresh();
     } catch (error) {
       console.error(error);
-      window.alert("Failed to revoke MCP token");
+      setMintError(t("app.mcp.revokeError"));
     } finally {
       setRevokingToken(null);
     }
   };
 
-  const active = (tokens ?? []).filter((t) => !t.revoked);
+  const active = (tokens ?? []).filter((token) => !token.revoked);
 
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={modal} onClick={(event) => event.stopPropagation()}>
-        <h3 style={{ marginTop: 0 }}>Connect an AI agent (MCP)</h3>
-        <p style={{ color: "#666", marginTop: 0 }}>
-          A token lets an MCP client (Claude Code, Codex, etc.) act on every
-          board you can access, subject to each board's bot permission. Revoke
-          any token you no longer use.
-        </p>
+    <>
+      <AppDialog
+        title={t("app.mcp.title")}
+        size="regular"
+        closeOnBackdrop={!anyBusy}
+        onClose={onClose}
+      >
+        <p className="exa-dialog-intro">{t("app.mcp.intro")}</p>
 
         {tokens === null ? (
-          <p>Loading…</p>
+          <div
+            className="exa-row"
+            style={{ gap: "0.5rem", padding: "0.5rem 0" }}
+          >
+            <Spinner />
+            <span className="exa-loading-text" style={{ padding: 0 }}>
+              {t("app.mcp.loading")}
+            </span>
+          </div>
+        ) : loadError ? (
+          <div className="exa-error" role="alert">
+            <span>{t("app.mcp.loadError")}</span>
+            <FilledButton
+              variant="outlined"
+              color="danger"
+              label={t("app.common.retry")}
+              onClick={refresh}
+            />
+          </div>
         ) : active.length === 0 ? (
-          <p style={{ color: "#888" }}>No active tokens.</p>
+          <p className="exa-empty">{t("app.mcp.empty")}</p>
         ) : (
-          <div>
-            {active.map((t) => (
-              <div key={t.token} style={tokenRow}>
-                <code style={{ flex: 1 }}>{maskToken(t.token)}</code>
-                <span style={{ color: "#aaa" }}>
-                  {new Date(t.createdAt).toLocaleDateString()}
+          <div className="exa-people">
+            {active.map((token) => (
+              <div key={token.token} className="exa-person-row">
+                <code className="exa-person-row__email">
+                  {maskToken(token.token)}
+                </code>
+                <span className="exa-role-text">
+                  {new Date(token.createdAt).toLocaleDateString()}
                 </span>
-                <BusyButton
-                  style={linkBtn}
-                  busy={revokingToken === t.token}
-                  busyLabel="Revoking…"
+                <FilledButton
+                  variant="outlined"
+                  color="danger"
+                  label={t("app.mcp.revokeToken", {
+                    token: maskToken(token.token),
+                  })}
+                  status={revokingToken === token.token ? "loading" : undefined}
                   disabled={anyBusy}
-                  onClick={() => revoke(t.token)}
+                  onClick={() => setRevokeTarget(token.token)}
                 >
-                  Revoke
-                </BusyButton>
+                  {t("app.mcp.revoke")}
+                </FilledButton>
               </div>
             ))}
           </div>
@@ -205,53 +198,62 @@ export const McpConfigDialog = ({ onClose }: { onClose: () => void }) => {
 
         {snippet && (
           <>
-            <p style={{ margin: "16px 0 0", fontWeight: 600 }}>
-              New token created — it won't be shown again. Paste into your
-              agent:
-            </p>
+            <p className="exa-note">{t("app.mcp.newToken")}</p>
 
             {buildCommands(snippet).map(({ label, command }) => (
               <div key={label}>
-                <div style={blockHeader}>
-                  <strong style={{ fontSize: 13 }}>{label}</strong>
-                  <CopyButton value={command} />
+                <div className="exa-code-head">
+                  <span>{label}</span>
+                  <CopyButton value={command} what={label} />
                 </div>
-                <pre style={pre}>{command}</pre>
+                <pre className="exa-code">{command}</pre>
               </div>
             ))}
 
-            <div style={blockHeader}>
-              <strong style={{ fontSize: 13 }}>
-                Raw config (Cursor, Windsurf, Claude Desktop, …)
-              </strong>
-              <CopyButton value={snippet.config} />
+            <div className="exa-code-head">
+              <span>{t("app.mcp.rawConfig")}</span>
+              <CopyButton
+                value={snippet.config}
+                what={t("app.mcp.configWhat")}
+              />
             </div>
-            <pre style={pre}>{snippet.config}</pre>
+            <pre className="exa-code">{snippet.config}</pre>
           </>
         )}
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 8,
-            marginTop: 16,
-          }}
-        >
-          <button style={linkBtn} onClick={onClose}>
-            Close
-          </button>
-          <BusyButton
-            style={btn}
-            busy={minting}
-            busyLabel="Generating…"
+        {mintError && (
+          <p className="exa-error-text" role="alert">
+            {mintError}
+          </p>
+        )}
+
+        <div className="exa-dialog-footer">
+          <FilledButton
+            variant="outlined"
+            color="muted"
+            label={t("app.common.close")}
+            disabled={anyBusy}
+            onClick={onClose}
+          />
+          <FilledButton
+            label={t("app.mcp.create")}
+            status={minting ? "loading" : undefined}
             disabled={anyBusy}
             onClick={mint}
-          >
-            Generate new token
-          </BusyButton>
+          />
         </div>
-      </div>
-    </div>
+      </AppDialog>
+
+      {revokeTarget && (
+        <AppConfirm
+          title={t("app.mcp.revokeTitle")}
+          message={t("app.mcp.revokeMessage")}
+          confirmLabel={t("app.mcp.revoke")}
+          danger
+          onConfirm={() => doRevoke(revokeTarget)}
+          onClose={() => setRevokeTarget(null)}
+        />
+      )}
+    </>
   );
 };

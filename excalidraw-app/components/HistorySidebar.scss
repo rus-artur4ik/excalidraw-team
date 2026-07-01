@@ -47,12 +47,14 @@
 
   .history-sidebar__timeline {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
     min-height: 0;
     overflow: auto;
     padding: 0.75rem 0.5rem 5.5rem;
+  }
+
+  .history-sidebar__sizer {
+    position: relative;
+    width: 100%;
   }
 
   .history-sidebar__empty {
@@ -62,13 +64,21 @@
     text-align: center;
   }
 
+  .history-sidebar__entry-item {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 4.75rem;
+  }
+
   .history-sidebar__entry {
     position: relative;
     display: grid;
     grid-template-columns: 1rem 5.5rem minmax(0, 1fr);
     gap: 0.625rem;
     width: 100%;
-    min-height: 4.5rem;
+    height: 100%;
+    overflow: hidden;
     border: 1px solid transparent;
     border-radius: 0.5rem;
     padding: 0.5rem;
@@ -81,9 +91,31 @@
       background: var(--button-hover-bg, var(--island-bg-color));
     }
 
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: -2px;
+    }
+
     &:disabled {
       cursor: default;
       opacity: 0.65;
+    }
+  }
+
+  @keyframes history-actions-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .history-sidebar__actions {
+      animation: none;
     }
   }
 
@@ -200,12 +232,20 @@
 
   .history-sidebar__entry-meta {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.125rem 0.5rem;
     min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     color: var(--text-muted-color);
     font-size: 0.75rem;
     line-height: 1.25;
+  }
+
+  .history-sidebar__entry-meta > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .history-sidebar__actions {
@@ -219,6 +259,7 @@
     padding: 0.75rem;
     border-top: 1px solid var(--sidebar-border-color);
     background: var(--sidebar-bg-color);
+    animation: history-actions-in 160ms ease-out;
   }
 
   .history-sidebar__cancel-button,

@@ -10,10 +10,10 @@ import {
 } from "react";
 
 import { CaptureUpdateAction } from "@excalidraw/excalidraw";
-import { Button } from "@excalidraw/excalidraw/components/Button";
-import { getNonDeletedElements } from "@excalidraw/element";
-import { exportToCanvas } from "@excalidraw/utils/export";
-import { isTestEnv } from "@excalidraw/common";
+import { FilledButton } from "@excalidraw/excalidraw/components/FilledButton";
+import { useI18n } from "@excalidraw/excalidraw/i18n";
+
+import Spinner from "@excalidraw/excalidraw/components/Spinner";
 
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 import type {
@@ -22,6 +22,9 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 
+import { useAtomValue } from "../app-jotai";
+import { sharedSceneRoomAtom } from "../boardSession";
+import { getBoardRouteId } from "../router";
 import { LocalData } from "../data/LocalData";
 import {
   createCollabRestoreElements,
@@ -31,10 +34,13 @@ import {
 } from "../data/SceneHistory";
 import {
   loadSceneHistoryEntryFromFirebase,
+  loadSceneHistoryThumbnailFromFirebase,
   subscribeSceneHistoryFromFirebase,
 } from "../data/firebase";
+import { createHistoryThumbnail } from "../data/sceneHistoryThumbnail";
+import { deriveChangeFocusFromDelta } from "../data/historyThumbnailFocus";
 
-import { Spinner } from "./BusyButton";
+import { AppConfirm } from "./AppConfirm";
 
 import "./HistorySidebar.scss";
 
@@ -50,7 +56,6 @@ type HistorySidebarProps = {
 type SceneHistoryProviderProps = {
   collabAPI: CollabAPI | null;
   excalidrawAPI: ExcalidrawImperativeAPI | null;
-  isCollaborating: boolean;
   children: React.ReactNode;
 };
 
@@ -61,6 +66,7 @@ type SceneHistoryContextValue = {
   isSharedHistory: boolean;
   sessionId: string;
   markNextChangeAsRestore: (sourceEntryId: string) => void;
+  loadThumbnail: (entryId: string) => Promise<string | null>;
   reconstructEntry: (entryId: string) => Promise<{
     entry: SceneHistoryEntry;
     elements: OrderedExcalidrawElement[];
@@ -75,79 +81,19 @@ type PreviewOrigin = {
   files: BinaryFiles;
 };
 
-const THUMBNAIL_MAX_WIDTH = 160;
-const THUMBNAIL_MAX_HEIGHT = 96;
 const SCENE_HISTORY_PREVIEW_LOCK = "scene-history-preview";
+const HISTORY_ROW_HEIGHT = 84;
+const HISTORY_OVERSCAN = 6;
 
 const SceneHistoryContext = createContext<SceneHistoryContextValue | null>(
   null,
 );
-
-type CollabHistorySource = {
-  roomId: string;
-  roomKey: string;
-};
 
 const createSessionId = () => {
   return (
     globalThis.crypto?.randomUUID?.() ??
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
   );
-};
-
-const getCollabHistorySource = (
-  collabAPI: CollabAPI | null,
-  isCollaborating: boolean,
-): CollabHistorySource | null => {
-  if (!collabAPI || !isCollaborating) {
-    return null;
-  }
-
-  return collabAPI.getCollabRoomInfo();
-};
-
-const createHistoryThumbnail = async (
-  elements: readonly OrderedExcalidrawElement[],
-  appState: AppState,
-  files: BinaryFiles,
-) => {
-  const nonDeletedElements = getNonDeletedElements(elements);
-
-  if (!nonDeletedElements.length || isTestEnv()) {
-    return null;
-  }
-
-  try {
-    const canvas = await exportToCanvas({
-      elements: nonDeletedElements,
-      appState: {
-        exportBackground: true,
-        exportScale: 1,
-        exportWithDarkMode: appState.exportWithDarkMode,
-        viewBackgroundColor: appState.viewBackgroundColor,
-      },
-      files,
-      exportPadding: 12,
-      getDimensions: (width, height) => {
-        const scale = Math.min(
-          THUMBNAIL_MAX_WIDTH / width,
-          THUMBNAIL_MAX_HEIGHT / height,
-          1,
-        );
-
-        return {
-          width: Math.max(1, Math.round(width * scale)),
-          height: Math.max(1, Math.round(height * scale)),
-          scale,
-        };
-      },
-    });
-
-    return canvas.toDataURL("image/png");
-  } catch (error) {
-    console.warn("Failed to render scene history thumbnail:", error);
-    return null;
-  }
 };
 
 const getCurrentScene = (
@@ -179,23 +125,29 @@ const formatEntryTime = (timestamp: number) => {
   }).format(timestamp);
 };
 
-const getEntryTitle = (entry: SceneHistoryEntry) => {
+type TFn = ReturnType<typeof useI18n>["t"];
+
+const getEntryTitle = (entry: SceneHistoryEntry, t: TFn) => {
   if (entry.kind === "initial") {
-    return "Initial version";
+    return t("app.history.initialVersion");
   }
 
   if (entry.kind === "restore") {
-    return "Restore";
+    return t("app.history.restoreKind");
   }
 
-  return `Version ${entry.sequence}`;
+  return t("app.history.version", { n: entry.sequence });
 };
 
 const getAuthorInitials = (name: string) => {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter((part) => /[\p{L}\p{N}]/u.test(part[0] ?? ""));
 
   if (!parts.length) {
-    return "?";
+    const stripped = name.replace(/[^\p{L}\p{N}]/gu, "");
+    return stripped ? stripped.slice(0, 2).toUpperCase() : "?";
   }
 
   if (parts.length === 1) {
@@ -218,14 +170,76 @@ const getAuthorColor = (key: string) => {
 const getEntryAuthorLabel = (
   entry: SceneHistoryEntry,
   currentSessionId: string,
+  t: TFn,
 ) => {
   const isCurrentSession = entry.sessionId === currentSessionId;
 
   if (entry.author) {
-    return isCurrentSession ? `${entry.author} (you)` : entry.author;
+    return isCurrentSession
+      ? t("app.history.you", { author: entry.author })
+      : entry.author;
   }
 
-  return isCurrentSession ? "This session" : "Previous session";
+  return isCurrentSession
+    ? t("app.history.thisSession")
+    : t("app.history.previousSession");
+};
+
+const HistoryThumbnail = ({
+  entry,
+  cacheRef,
+  loadThumbnail,
+}: {
+  entry: SceneHistoryEntry;
+  cacheRef: { current: Map<string, string | null> };
+  loadThumbnail: (entryId: string) => Promise<string | null>;
+}) => {
+  const [url, setUrl] = useState<string | null>(
+    entry.thumbnail ?? cacheRef.current.get(entry.id) ?? null,
+  );
+
+  useEffect(() => {
+    if (entry.thumbnail) {
+      setUrl(entry.thumbnail);
+      return;
+    }
+    if (cacheRef.current.has(entry.id)) {
+      setUrl(cacheRef.current.get(entry.id) ?? null);
+      return;
+    }
+    let active = true;
+    void loadThumbnail(entry.id).then((result) => {
+      cacheRef.current.set(entry.id, result);
+      if (active) {
+        setUrl(result);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [entry.id, entry.thumbnail, cacheRef, loadThumbnail]);
+
+  if (url) {
+    return <img alt="" src={url} loading="lazy" decoding="async" />;
+  }
+
+  if (entry.author) {
+    return entry.author.startsWith("Бот ") ? (
+      <span className="history-sidebar__avatar" title={entry.author}>
+        🤖
+      </span>
+    ) : (
+      <span
+        className="history-sidebar__avatar"
+        style={{ backgroundColor: getAuthorColor(entry.author) }}
+        title={entry.author}
+      >
+        {getAuthorInitials(entry.author)}
+      </span>
+    );
+  }
+
+  return <span>{entry.kind === "initial" ? "" : entry.sequence}</span>;
 };
 
 const useSceneHistoryContext = () => {
@@ -241,9 +255,9 @@ const useSceneHistoryContext = () => {
 export const SceneHistoryProvider = ({
   collabAPI,
   excalidrawAPI,
-  isCollaborating,
   children,
 }: SceneHistoryProviderProps) => {
+  const { t } = useI18n();
   const sessionIdRef = useRef(createSessionId());
   const recordQueueRef = useRef(Promise.resolve());
   const isMountedRef = useRef(false);
@@ -251,13 +265,14 @@ export const SceneHistoryProvider = ({
   const [historyData, setHistoryData] = useState<SceneHistoryData | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const collabHistorySource = getCollabHistorySource(
-    collabAPI,
-    isCollaborating,
+  const isBoardRoute = useMemo(
+    () => !!getBoardRouteId(window.location.pathname),
+    [],
   );
-  const collabRoomId = collabHistorySource?.roomId ?? null;
-  const collabRoomKey = collabHistorySource?.roomKey ?? null;
-  const isSharedHistory = !!collabHistorySource;
+  const sharedRoom = useAtomValue(sharedSceneRoomAtom);
+  const collabRoomId = sharedRoom?.roomId ?? null;
+  const collabRoomKey = sharedRoom?.roomKey ?? null;
+  const isSharedHistory = isBoardRoute || !!sharedRoom;
   const historySessionId =
     isSharedHistory && collabAPI
       ? collabAPI.getSceneHistorySessionId()
@@ -317,6 +332,25 @@ export const SceneHistoryProvider = ({
     [collabRoomId, collabRoomKey, historyData, isSharedHistory],
   );
 
+  const loadThumbnail = useCallback(
+    async (entryId: string): Promise<string | null> => {
+      if (!isSharedHistory || !collabRoomId || !collabRoomKey) {
+        return null;
+      }
+      try {
+        return await loadSceneHistoryThumbnailFromFirebase({
+          roomId: collabRoomId,
+          roomKey: collabRoomKey,
+          entryId,
+        });
+      } catch (error) {
+        console.error(error);
+        return null;
+      }
+    },
+    [collabRoomId, collabRoomKey, isSharedHistory],
+  );
+
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -360,7 +394,7 @@ export const SceneHistoryProvider = ({
         console.error(error);
 
         if (isActive && isMountedRef.current) {
-          setErrorMessage("History is unavailable");
+          setErrorMessage(t("app.history.unavailable"));
         }
       })
       .finally(() => {
@@ -372,7 +406,7 @@ export const SceneHistoryProvider = ({
     return () => {
       isActive = false;
     };
-  }, [excalidrawAPI, isSharedHistory, setHistoryState]);
+  }, [excalidrawAPI, isSharedHistory, setHistoryState, t]);
 
   useEffect(() => {
     if (!excalidrawAPI || !collabRoomId || !collabRoomKey) {
@@ -397,7 +431,7 @@ export const SceneHistoryProvider = ({
         console.error(error);
 
         if (isActive && isMountedRef.current) {
-          setErrorMessage("Shared history is unavailable");
+          setErrorMessage(t("app.history.sharedUnavailable"));
           setIsLoading(false);
         }
       },
@@ -407,7 +441,7 @@ export const SceneHistoryProvider = ({
       isActive = false;
       unsubscribe();
     };
-  }, [collabRoomId, collabRoomKey, excalidrawAPI, setHistoryState]);
+  }, [collabRoomId, collabRoomKey, excalidrawAPI, setHistoryState, t]);
 
   useEffect(() => {
     if (!excalidrawAPI || isSharedHistory) {
@@ -436,6 +470,7 @@ export const SceneHistoryProvider = ({
             scene.elements,
             scene.appState,
             scene.files,
+            deriveChangeFocusFromDelta(increment.delta, scene.elements),
           );
           const nextHistoryData = await SceneHistory.append({
             sessionId: sessionIdRef.current,
@@ -456,7 +491,7 @@ export const SceneHistoryProvider = ({
         .catch((error) => {
           console.error(error);
           if (isActive && isMountedRef.current) {
-            setErrorMessage("History was not saved");
+            setErrorMessage(t("app.history.notSaved"));
           }
         });
     });
@@ -465,7 +500,7 @@ export const SceneHistoryProvider = ({
       isActive = false;
       unsubscribe();
     };
-  }, [excalidrawAPI, isSharedHistory, setHistoryState]);
+  }, [excalidrawAPI, isSharedHistory, setHistoryState, t]);
 
   const value = useMemo(
     () => ({
@@ -475,6 +510,7 @@ export const SceneHistoryProvider = ({
       isSharedHistory,
       sessionId: historySessionId,
       markNextChangeAsRestore,
+      loadThumbnail,
       reconstructEntry,
     }),
     [
@@ -483,6 +519,7 @@ export const SceneHistoryProvider = ({
       historySessionId,
       isLoading,
       isSharedHistory,
+      loadThumbnail,
       markNextChangeAsRestore,
       reconstructEntry,
     ],
@@ -507,11 +544,17 @@ export const HistorySidebar = ({
     isSharedHistory,
     sessionId,
     markNextChangeAsRestore,
+    loadThumbnail,
     reconstructEntry,
   } = useSceneHistoryContext();
+  const { t } = useI18n();
   const previewOriginRef = useRef<PreviewOrigin | null>(null);
   const previewRequestIdRef = useRef(0);
   const isMountedRef = useRef(false);
+  const thumbCacheRef = useRef<Map<string, string | null>>(new Map());
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [previewEntryId, setPreviewEntryId] = useState<string | null>(null);
   const [previewingEntryId, setPreviewingEntryId] = useState<string | null>(
@@ -519,6 +562,7 @@ export const HistorySidebar = ({
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
 
   const entries = useMemo(
     () => [...(historyData?.entries ?? [])].reverse(),
@@ -530,6 +574,8 @@ export const HistorySidebar = ({
   );
   const isPreviewing = !!previewEntryId;
   const visibleErrorMessage = errorMessage || historyErrorMessage;
+  const showLoading =
+    isLoading || (isSharedHistory && !historyData && !visibleErrorMessage);
 
   const addTargetFilesToScene = useCallback(
     async (target: {
@@ -558,6 +604,18 @@ export const HistorySidebar = ({
     return () => {
       isMountedRef.current = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const element = timelineRef.current;
+    if (!element) {
+      return;
+    }
+    const measure = () => setViewportHeight(element.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -610,6 +668,20 @@ export const HistorySidebar = ({
     };
   }, [collabAPI, excalidrawAPI]);
 
+  useEffect(() => {
+    if (!isPreviewing) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isRestoring) {
+        event.stopPropagation();
+        cancelPreview();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isPreviewing, isRestoring, cancelPreview]);
+
   const previewEntry = async (entry: SceneHistoryEntry) => {
     if (isRestoring) {
       return;
@@ -640,7 +712,7 @@ export const HistorySidebar = ({
 
       if (!target) {
         cancelPreview();
-        setErrorMessage("Version could not be restored");
+        setErrorMessage(t("app.history.restoreError"));
         return;
       }
 
@@ -664,7 +736,7 @@ export const HistorySidebar = ({
 
       console.error(error);
       cancelPreview();
-      setErrorMessage("Version could not be previewed");
+      setErrorMessage(t("app.history.previewError"));
     } finally {
       if (isMountedRef.current && previewRequestIdRef.current === requestId) {
         setPreviewingEntryId(null);
@@ -685,7 +757,7 @@ export const HistorySidebar = ({
       const origin = previewOriginRef.current;
 
       if (!target) {
-        setErrorMessage("Version could not be restored");
+        setErrorMessage(t("app.history.restoreError"));
         return;
       }
 
@@ -722,31 +794,42 @@ export const HistorySidebar = ({
       if (isSharedHistory && isCollaborating) {
         collabAPI?.syncElements(restoredElements);
       }
-      excalidrawAPI.setToast({ message: "Version restored" });
+      excalidrawAPI.setToast({ message: t("app.history.restored") });
       setPreviewEntryId(null);
       setErrorMessage(null);
     } catch (error) {
       console.error(error);
-      setErrorMessage("Version could not be restored");
+      setErrorMessage(t("app.history.restoreError"));
     } finally {
       setIsRestoring(false);
     }
   };
 
+  const startIndex = Math.max(
+    0,
+    Math.floor(scrollTop / HISTORY_ROW_HEIGHT) - HISTORY_OVERSCAN,
+  );
+  const endIndex = Math.min(
+    entries.length,
+    Math.ceil((scrollTop + viewportHeight) / HISTORY_ROW_HEIGHT) +
+      HISTORY_OVERSCAN,
+  );
+  const visibleEntries = entries.slice(startIndex, endIndex);
+
   return (
     <div className="history-sidebar">
       <div className="history-sidebar__header">
-        <h2>History</h2>
+        <h2>{t("app.history.title")}</h2>
         {historyData && (
           <div className="history-sidebar__count">
-            {historyData.entries.length} versions
+            {t("app.history.versions", { count: historyData.entries.length })}
           </div>
         )}
       </div>
 
       {isCollaborating && isSharedHistory && (
         <div className="history-sidebar__notice">
-          Shared history is synced for this room.
+          {t("app.history.sharedNotice")}
         </div>
       )}
 
@@ -756,111 +839,124 @@ export const HistorySidebar = ({
         </div>
       )}
 
-      <div className="history-sidebar__timeline" role="list">
-        {isLoading ? (
-          <div className="history-sidebar__empty">Loading history...</div>
+      <div
+        className="history-sidebar__timeline"
+        role="list"
+        ref={timelineRef}
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      >
+        {showLoading ? (
+          <div className="history-sidebar__empty">
+            {t("app.history.loading")}
+          </div>
         ) : entries.length ? (
-          entries.map((entry) => {
-            const isSelected = entry.id === selectedEntryId;
-            const isCurrent = entry.id === historyData?.currentEntryId;
+          <div
+            className="history-sidebar__sizer"
+            style={{ height: entries.length * HISTORY_ROW_HEIGHT }}
+          >
+            {visibleEntries.map((entry, offset) => {
+              const index = startIndex + offset;
+              const isSelected = entry.id === selectedEntryId;
+              const isCurrent = entry.id === historyData?.currentEntryId;
 
-            return (
-              <button
-                className={clsx("history-sidebar__entry", {
-                  "history-sidebar__entry--selected": isSelected,
-                  "history-sidebar__entry--current": isCurrent,
-                })}
-                disabled={isRestoring}
-                key={entry.id}
-                onClick={() => previewEntry(entry)}
-                role="listitem"
-                type="button"
-              >
-                <span className="history-sidebar__marker" />
-                <span className="history-sidebar__thumbnail">
-                  {entry.author ? (
-                    entry.author.startsWith("Бот ") ? (
-                      <span
-                        className="history-sidebar__avatar"
-                        title={entry.author}
-                      >
-                        🤖
-                      </span>
-                    ) : (
-                      <span
-                        className="history-sidebar__avatar"
-                        style={{
-                          backgroundColor: getAuthorColor(entry.author),
-                        }}
-                        title={entry.author}
-                      >
-                        {getAuthorInitials(entry.author)}
-                      </span>
-                    )
-                  ) : entry.thumbnail ? (
-                    <img alt="" src={entry.thumbnail} />
-                  ) : (
-                    <span>
-                      {entry.kind === "initial" ? "Start" : entry.sequence}
+              return (
+                <div
+                  className="history-sidebar__entry-item"
+                  role="listitem"
+                  key={entry.id}
+                  style={{ top: index * HISTORY_ROW_HEIGHT }}
+                >
+                  <button
+                    className={clsx("history-sidebar__entry", {
+                      "history-sidebar__entry--selected": isSelected,
+                      "history-sidebar__entry--current": isCurrent,
+                    })}
+                    aria-current={isCurrent ? "true" : undefined}
+                    aria-pressed={isSelected}
+                    disabled={isRestoring}
+                    onClick={() => previewEntry(entry)}
+                    type="button"
+                  >
+                    <span className="history-sidebar__marker" />
+                    <span className="history-sidebar__thumbnail">
+                      <HistoryThumbnail
+                        entry={entry}
+                        cacheRef={thumbCacheRef}
+                        loadThumbnail={loadThumbnail}
+                      />
                     </span>
-                  )}
-                </span>
-                <span className="history-sidebar__entry-body">
-                  <span className="history-sidebar__entry-title">
-                    {getEntryTitle(entry)}
-                    {isCurrent && (
-                      <span className="history-sidebar__current-label">
-                        Current
+                    <span className="history-sidebar__entry-body">
+                      <span className="history-sidebar__entry-title">
+                        {getEntryTitle(entry, t)}
+                        {isCurrent && (
+                          <span className="history-sidebar__current-label">
+                            {t("app.history.current")}
+                          </span>
+                        )}
+                        {previewingEntryId === entry.id && (
+                          <Spinner size={12} />
+                        )}
                       </span>
-                    )}
-                    {previewingEntryId === entry.id && (
-                      <Spinner size={12} style={{ marginLeft: 6 }} />
-                    )}
-                  </span>
-                  <span className="history-sidebar__entry-summary">
-                    {entry.summary}
-                  </span>
-                  <span className="history-sidebar__entry-meta">
-                    <time dateTime={new Date(entry.createdAt).toISOString()}>
-                      {formatEntryTime(entry.createdAt)}
-                    </time>
-                    <span>{getEntryAuthorLabel(entry, sessionId)}</span>
-                  </span>
-                </span>
-              </button>
-            );
-          })
+                      <span className="history-sidebar__entry-summary">
+                        {entry.summary}
+                      </span>
+                      <span className="history-sidebar__entry-meta">
+                        <time
+                          dateTime={new Date(entry.createdAt).toISOString()}
+                        >
+                          {formatEntryTime(entry.createdAt)}
+                        </time>
+                        <span>{getEntryAuthorLabel(entry, sessionId, t)}</span>
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          <div className="history-sidebar__empty">No history yet</div>
+          <div className="history-sidebar__empty">{t("app.history.empty")}</div>
         )}
       </div>
 
       {isPreviewing && (
         <div className="history-sidebar__actions">
-          <Button
+          <FilledButton
             className="history-sidebar__cancel-button"
-            onSelect={cancelPreview}
+            variant="outlined"
+            color="muted"
+            label={t("app.common.cancel")}
             disabled={isRestoring}
-          >
-            Cancel
-          </Button>
-          <Button
+            onClick={cancelPreview}
+          />
+          <FilledButton
             className="history-sidebar__restore-button"
-            onSelect={restoreSelectedEntry}
+            label={t("app.history.restore")}
+            status={isRestoring ? "loading" : undefined}
             disabled={isRestoring}
-          >
-            {isRestoring ? (
-              <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-              >
-                <Spinner size={13} />
-                Restoring…
-              </span>
-            ) : (
-              "Restore"
-            )}
-          </Button>
+            onClick={() => {
+              if (isSharedHistory && isCollaborating) {
+                setConfirmRestore(true);
+                return undefined;
+              }
+              return restoreSelectedEntry();
+            }}
+          />
         </div>
+      )}
+
+      {confirmRestore && (
+        <AppConfirm
+          title={t("app.history.restoreTitle")}
+          message={t("app.history.restoreMessage")}
+          confirmLabel={t("app.history.restore")}
+          danger
+          onConfirm={async () => {
+            await restoreSelectedEntry();
+            setConfirmRestore(false);
+          }}
+          onClose={() => setConfirmRestore(false)}
+        />
       )}
     </div>
   );

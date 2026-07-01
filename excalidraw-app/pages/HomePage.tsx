@@ -1,8 +1,15 @@
+import { ExcalLogo, PlusIcon } from "@excalidraw/excalidraw/components/icons";
+import { FilledButton } from "@excalidraw/excalidraw/components/FilledButton";
+
 import { useEffect, useState } from "react";
 
-import { BusyButton } from "../components/BusyButton";
+import { useAppT } from "../components/useAppT";
+
+import { AppHeader } from "../components/AppHeader";
+import { AppShell } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
 import {
+  canWriteBoard,
   listInvitedBoards,
   listMyBoards,
   listTeamBoards,
@@ -10,34 +17,28 @@ import {
   loadTeam,
   teamRoleOf,
 } from "../data/boards";
-import { navigate } from "../router";
 
 import { BoardCard } from "./BoardCard";
+import {
+  BoardFilter,
+  boardMatchesFilter,
+  DEFAULT_BOARD_FILTER,
+} from "./BoardFilter";
 import { BoardSettingsDialog } from "./BoardSettings";
 import { CreateBoardDialog } from "./CreateBoardDialog";
 import { McpConfigDialog } from "./McpConfigDialog";
-import {
-  badge,
-  boardCard,
-  btn,
-  cardGrid,
-  headerStyle,
-  linkBtn,
-  pageStyle,
-  skeletonShimmer,
-  thumbBox,
-} from "./pageStyles";
 
-import type { Board } from "../data/boards";
+import type { BoardFilterValue } from "./BoardFilter";
+import type { Board, Team } from "../data/boards";
 
 const SkeletonCard = () => (
-  <li style={boardCard}>
-    <div style={thumbBox}>
-      <div style={skeletonShimmer} />
+  <li className="exa-card" aria-hidden="true">
+    <div className="exa-card__thumb">
+      <div className="exa-skeleton" />
     </div>
-    <div style={{ padding: "10px 12px", display: "flex", gap: 6 }}>
-      <span style={{ ...badge, width: 70, height: 14 }} />
-      <span style={{ ...badge, width: 50, height: 14 }} />
+    <div className="exa-card__body">
+      <span className="exa-skeleton-pill" style={{ width: "60%" }} />
+      <span className="exa-skeleton-pill" style={{ width: "40%" }} />
     </div>
   </li>
 );
@@ -53,19 +54,22 @@ const unionById = (...groups: Board[][]): Board[] => {
 };
 
 export const HomePage = () => {
-  const { user, loading, signIn, signOut } = useAuth();
+  const t = useAppT();
+  const { user, loading, signIn } = useAuth();
   const [boards, setBoards] = useState<Board[]>([]);
   const [roomKeys, setRoomKeys] = useState<Map<string, string | null>>(
     new Map(),
   );
   const [loadingBoards, setLoadingBoards] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isTeamMember, setIsTeamMember] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [signingIn, setSigningIn] = useState(false);
   const [settingsBoard, setSettingsBoard] = useState<Board | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [team, setTeam] = useState<Team | null>(null);
+  const [filter, setFilter] = useState<BoardFilterValue>(DEFAULT_BOARD_FILTER);
 
   useEffect(() => {
     if (!user) {
@@ -77,9 +81,10 @@ export const HomePage = () => {
     }
     let cancelled = false;
     setLoadingBoards(true);
+    setLoadError(false);
     (async () => {
-      const team = await loadTeam();
-      const role = teamRoleOf(team, user.email);
+      const loadedTeam = await loadTeam();
+      const role = teamRoleOf(loadedTeam, user.email);
       const [mine, invited, teamBoards] = await Promise.all([
         listMyBoards(),
         user.email ? listInvitedBoards(user.email) : Promise.resolve([]),
@@ -90,6 +95,7 @@ export const HomePage = () => {
       }
       const list = unionById(mine, invited, teamBoards);
       setBoards(list);
+      setTeam(loadedTeam);
       setIsAdmin(role === "admin");
       setIsTeamMember(!!role);
       const keys = await loadBoardKeys(list.map((board) => board.roomId));
@@ -97,7 +103,12 @@ export const HomePage = () => {
         setRoomKeys(keys);
       }
     })()
-      .catch((error) => console.error(error))
+      .catch((error) => {
+        console.error(error);
+        if (!cancelled) {
+          setLoadError(true);
+        }
+      })
       .finally(() => {
         if (!cancelled) {
           setLoadingBoards(false);
@@ -109,27 +120,38 @@ export const HomePage = () => {
   }, [user, reloadKey]);
 
   if (loading) {
-    return <div style={pageStyle}>Загрузка…</div>;
+    return (
+      <AppShell>
+        <div className="exa-page">
+          <p className="exa-loading-text">{t("app.common.loading")}</p>
+        </div>
+      </AppShell>
+    );
   }
 
   if (!user) {
     return (
-      <div style={pageStyle}>
-        <h1>Excalidraw Team</h1>
-        <BusyButton
-          style={btn}
-          busy={signingIn}
-          busyLabel="Вход…"
-          onClick={() => {
-            setSigningIn(true);
-            signIn()
-              .catch((e) => console.error(e))
-              .finally(() => setSigningIn(false));
-          }}
-        >
-          Войти через Google
-        </BusyButton>
-      </div>
+      <AppShell>
+        <div className="exa-signin">
+          <div className="exa-signin__logo">{ExcalLogo}</div>
+          <h1 className="exa-signin__title">{t("app.brand")}</h1>
+          <p className="exa-signin__tagline">{t("app.signIn.tagline")}</p>
+          <div className="exa-signin__card">
+            <FilledButton
+              size="large"
+              fullWidth
+              label={t("app.signIn.google")}
+              onClick={async () => {
+                try {
+                  await signIn();
+                } catch (error) {
+                  console.error(error);
+                }
+              }}
+            />
+          </div>
+        </div>
+      </AppShell>
     );
   }
 
@@ -137,63 +159,68 @@ export const HomePage = () => {
     board.ownerUid === user.uid ||
     (isAdmin && (board.visibility === "team" || !!board.teamId));
 
+  const visibleBoards = boards.filter((board) =>
+    boardMatchesFilter(board, filter, canWriteBoard(board, user, team)),
+  );
+
   return (
-    <div style={pageStyle}>
-      <style>
-        {`@keyframes boardSkeleton { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }`}
-      </style>
-      <header style={headerStyle}>
-        <h1>Ваши доски</h1>
-        <div>
-          <button style={linkBtn} onClick={() => setMcpOpen(true)}>
-            Подключить AI (MCP)
-          </button>
-          {isAdmin && (
-            <button style={linkBtn} onClick={() => navigate("/admin")}>
-              Команда
-            </button>
-          )}
-          <span style={{ marginLeft: 12 }}>
-            {user.displayName ?? user.email}
-          </span>
-          <button
-            style={linkBtn}
-            onClick={() => signOut().catch(console.error)}
-          >
-            Выйти
-          </button>
-        </div>
-      </header>
+    <AppShell>
+      <AppHeader
+        user={user}
+        isAdmin={isAdmin}
+        onOpenMcp={() => setMcpOpen(true)}
+      />
 
-      <div style={{ display: "flex", margin: "16px 0" }}>
-        <button style={btn} onClick={() => setCreating(true)}>
-          + Новая доска
-        </button>
-      </div>
-
-      {loadingBoards ? (
-        <ul style={cardGrid}>
-          {[0, 1, 2, 3].map((i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </ul>
-      ) : boards.length === 0 ? (
-        <p style={{ color: "#888" }}>
-          Досок пока нет — нажмите «Новая доска», чтобы начать.
-        </p>
-      ) : (
-        <ul style={cardGrid}>
-          {boards.map((board) => (
-            <BoardCard
-              key={board.roomId}
-              board={board}
-              canManage={canManage(board)}
-              roomKey={roomKeys.get(board.roomId) ?? null}
-              onSettings={() => setSettingsBoard(board)}
+      <div className="exa-page">
+        <div className="exa-page-head">
+          <h1>{t("app.home.title")}</h1>
+          <div className="exa-page-head__actions">
+            <BoardFilter value={filter} onChange={setFilter} />
+            <FilledButton
+              size="large"
+              icon={PlusIcon}
+              label={t("app.home.newBoard")}
+              onClick={() => setCreating(true)}
             />
-          ))}
-        </ul>
-      )}
+          </div>
+        </div>
+
+        {loadingBoards ? (
+          <ul className="exa-grid">
+            {[0, 1, 2, 3].map((index) => (
+              <SkeletonCard key={index} />
+            ))}
+          </ul>
+        ) : loadError ? (
+          <div className="exa-error" role="alert">
+            <span>{t("app.home.loadError")}</span>
+            <FilledButton
+              variant="outlined"
+              color="danger"
+              label={t("app.common.retry")}
+              onClick={() => setReloadKey((key) => key + 1)}
+            />
+          </div>
+        ) : visibleBoards.length === 0 ? (
+          <p className="exa-empty">
+            {boards.length === 0
+              ? t("app.home.empty")
+              : t("app.home.emptyFiltered")}
+          </p>
+        ) : (
+          <ul className="exa-grid">
+            {visibleBoards.map((board) => (
+              <BoardCard
+                key={board.roomId}
+                board={board}
+                canManage={canManage(board)}
+                roomKey={roomKeys.get(board.roomId) ?? null}
+                onSettings={() => setSettingsBoard(board)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
 
       {creating && (
         <CreateBoardDialog
@@ -210,10 +237,14 @@ export const HomePage = () => {
             setSettingsBoard(null);
             setReloadKey((key) => key + 1);
           }}
+          onDeleted={() => {
+            setSettingsBoard(null);
+            setReloadKey((key) => key + 1);
+          }}
         />
       )}
 
       {mcpOpen && <McpConfigDialog onClose={() => setMcpOpen(false)} />}
-    </div>
+    </AppShell>
   );
 };

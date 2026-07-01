@@ -23,7 +23,7 @@ import type {
 import { STORAGE_KEYS } from "../app_constants";
 
 export const SCENE_HISTORY_VERSION = 1;
-export const MAX_SCENE_HISTORY_ENTRIES = 120;
+export const MAX_SCENE_HISTORY_ENTRIES = Number.POSITIVE_INFINITY;
 const SNAPSHOT_INTERVAL = 20;
 const LOCAL_DOCUMENT_ID = "local-default";
 const RECORDABLE_APP_STATE_KEYS = new Set<keyof ObservedAppState>([

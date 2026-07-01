@@ -1,4 +1,4 @@
-import { Bytes, doc, getDoc, setDoc } from "firebase/firestore";
+import { Bytes, deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 
 import { getNonDeletedElements } from "@excalidraw/element";
 import {
@@ -7,10 +7,10 @@ import {
 } from "@excalidraw/excalidraw/data/encryption";
 import { exportToCanvas } from "@excalidraw/utils/export";
 
-import { getFirestoreInstance } from "./firebase";
-
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
+
+import { getFirestoreInstance } from "./firebase";
 
 const THUMBNAIL_MAX_WIDTH = 320;
 const THUMBNAIL_MAX_HEIGHT = 200;
@@ -26,7 +26,11 @@ const thumbnailRef = (roomId: string) => {
   if (roomId.includes("~")) {
     throw new Error(`Unexpected "~" in collab room id: ${roomId}`);
   }
-  return doc(getFirestoreInstance(), "scenes", `${roomId}${THUMBNAIL_ID_SUFFIX}`);
+  return doc(
+    getFirestoreInstance(),
+    "scenes",
+    `${roomId}${THUMBNAIL_ID_SUFFIX}`,
+  );
 };
 
 export const renderBoardThumbnail = async (
@@ -90,6 +94,10 @@ export const saveBoardThumbnail = async ({
   await setDoc(thumbnailRef(roomId), stored);
 };
 
+export const deleteBoardThumbnail = async (roomId: string) => {
+  await deleteDoc(thumbnailRef(roomId));
+};
+
 export const loadBoardThumbnail = async ({
   roomId,
   roomKey,
@@ -106,7 +114,8 @@ export const loadBoardThumbnail = async ({
     return null;
   }
   try {
-    const ciphertext = stored.ciphertext.toUint8Array() as Uint8Array<ArrayBuffer>;
+    const ciphertext =
+      stored.ciphertext.toUint8Array() as Uint8Array<ArrayBuffer>;
     const iv = stored.iv.toUint8Array() as Uint8Array<ArrayBuffer>;
     const decrypted = await decryptData(iv, ciphertext, roomKey);
     return new TextDecoder("utf-8").decode(new Uint8Array(decrypted));

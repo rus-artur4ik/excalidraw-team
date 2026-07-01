@@ -16,6 +16,7 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
+
 import type { Unsubscribe } from "firebase/firestore";
 import {
   Bytes,
@@ -27,6 +28,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
   runTransaction,
+  writeBatch,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -42,6 +44,8 @@ import type {
   BinaryFileMetadata,
   DataURL,
 } from "@excalidraw/excalidraw/types";
+
+import { FIREBASE_STORAGE_PREFIXES } from "../app_constants";
 
 import type {
   SceneHistoryData,
@@ -272,6 +276,29 @@ const decryptSceneHistoryPayload = async (
   return JSON.parse(decodedData);
 };
 
+type FirebaseStoredSceneHistoryThumbnail = {
+  historyVersion: typeof SCENE_HISTORY_VERSION;
+  iv: Bytes;
+  ciphertext: Bytes;
+};
+
+const encryptSceneHistoryThumbnail = async (key: string, thumbnail: string) => {
+  const encoded = new TextEncoder().encode(thumbnail);
+  const { encryptedBuffer, iv } = await encryptData(key, encoded);
+  return { ciphertext: encryptedBuffer, iv };
+};
+
+const decryptSceneHistoryThumbnail = async (
+  data: FirebaseStoredSceneHistoryThumbnail,
+  roomKey: string,
+): Promise<string> => {
+  const ciphertext = data.ciphertext.toUint8Array() as Uint8Array<ArrayBuffer>;
+  const iv = data.iv.toUint8Array() as Uint8Array<ArrayBuffer>;
+
+  const decrypted = await decryptData(iv, ciphertext, roomKey);
+  return new TextDecoder("utf-8").decode(new Uint8Array(decrypted));
+};
+
 // The hosted Firestore rules only grant access to top-level `scenes/{id}`
 // documents (subcollections and other collections are denied for both reads
 // and writes), so shared history is stored as sibling `scenes` documents keyed
@@ -298,6 +325,57 @@ const getSceneHistoryEntryRef = (roomId: string, entryId: string) => {
     "scenes",
     `${roomId}${SCENE_HISTORY_ID_SUFFIX}~${entryId}`,
   );
+};
+
+const getSceneHistoryThumbRef = (roomId: string, entryId: string) => {
+  assertHistoryRoomId(roomId);
+  return doc(
+    _getFirestore(),
+    "scenes",
+    `${roomId}${SCENE_HISTORY_ID_SUFFIX}~${entryId}~thumb`,
+  );
+};
+
+const FIRESTORE_BATCH_DELETE_LIMIT = 450;
+
+export const deleteBoardScenes = async (roomId: string) => {
+  const firestore = _getFirestore();
+  const metaSnapshot = await getDoc(getSceneHistoryMetaRef(roomId));
+  const entries = metaSnapshot.exists()
+    ? (metaSnapshot.data() as FirebaseSceneHistoryMetadata).entries ?? []
+    : [];
+
+  const sceneRefs = [
+    ...entries.flatMap((entry) => [
+      getSceneHistoryEntryRef(roomId, entry.id),
+      getSceneHistoryThumbRef(roomId, entry.id),
+    ]),
+    getSceneHistoryMetaRef(roomId),
+    doc(firestore, "scenes", roomId),
+  ];
+
+  for (let i = 0; i < sceneRefs.length; i += FIRESTORE_BATCH_DELETE_LIMIT) {
+    const batch = writeBatch(firestore);
+    for (const ref of sceneRefs.slice(i, i + FIRESTORE_BATCH_DELETE_LIMIT)) {
+      batch.delete(ref);
+    }
+    await batch.commit();
+  }
+};
+
+export const deleteRoomFiles = async (roomId: string) => {
+  assertHistoryRoomId(roomId);
+  const token = await getCurrentUserIdToken();
+  const response = await fetch(
+    fileServiceUrl(FIREBASE_STORAGE_PREFIXES.collabFiles, roomId),
+    {
+      method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
+  );
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Failed to delete room files: ${response.status}`);
+  }
 };
 
 const createEmptySceneHistoryData = (roomId: string): SceneHistoryData => ({
@@ -561,6 +639,39 @@ export const loadSceneHistoryEntryFromFirebase = async ({
   );
 };
 
+export const loadSceneHistoryThumbnailFromFirebase = async ({
+  roomId,
+  roomKey,
+  entryId,
+}: {
+  roomId: string;
+  roomKey: string;
+  entryId: string;
+}): Promise<string | null> => {
+  const snapshot = await getDoc(getSceneHistoryThumbRef(roomId, entryId));
+
+  if (!snapshot.exists()) {
+    return null;
+  }
+
+  const stored =
+    snapshot.data() as Partial<FirebaseStoredSceneHistoryThumbnail>;
+
+  if (!stored.iv || !stored.ciphertext) {
+    return null;
+  }
+
+  try {
+    return await decryptSceneHistoryThumbnail(
+      stored as FirebaseStoredSceneHistoryThumbnail,
+      roomKey,
+    );
+  } catch (error) {
+    console.warn("Failed to decrypt scene history thumbnail:", error);
+    return null;
+  }
+};
+
 export const appendSceneHistoryToFirebase = async ({
   roomId,
   roomKey,
@@ -575,9 +686,12 @@ export const appendSceneHistoryToFirebase = async ({
   const sceneVersion = getSceneVersion(elements);
   const payload: FirebaseSceneHistoryPayload = {
     ...createSceneHistorySnapshot({ elements, appState }),
-    thumbnail,
+    thumbnail: null,
   };
   const { ciphertext, iv } = await encryptSceneHistoryPayload(roomKey, payload);
+  const encryptedThumbnail = thumbnail
+    ? await encryptSceneHistoryThumbnail(roomKey, thumbnail)
+    : null;
   const firestore = _getFirestore();
   const metaRef = getSceneHistoryMetaRef(roomId);
   const entryId = createSceneHistoryId();
@@ -645,10 +759,20 @@ export const appendSceneHistoryToFirebase = async ({
     };
 
     transaction.set(getSceneHistoryEntryRef(roomId, entryId), storedEntry);
+    if (encryptedThumbnail) {
+      transaction.set(getSceneHistoryThumbRef(roomId, entryId), {
+        historyVersion: SCENE_HISTORY_VERSION,
+        ciphertext: Bytes.fromUint8Array(
+          new Uint8Array(encryptedThumbnail.ciphertext),
+        ),
+        iv: Bytes.fromUint8Array(encryptedThumbnail.iv),
+      });
+    }
     transaction.set(metaRef, nextMetadata);
 
     for (const trimmed of trimmedEntries) {
       transaction.delete(getSceneHistoryEntryRef(roomId, trimmed.id));
+      transaction.delete(getSceneHistoryThumbRef(roomId, trimmed.id));
     }
 
     return entryMeta;
