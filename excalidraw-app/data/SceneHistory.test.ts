@@ -1,17 +1,16 @@
 import type { StoreDelta } from "@excalidraw/element";
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
+import type {
+  SceneHistoryData,
+  SceneHistoryEntry,
+  SceneHistorySnapshot,
+} from "./SceneHistory";
 import {
   createCollabRestoreElements,
   isSceneHistoryDeltaRecordable,
   reconstructSceneHistoryData,
   trimSceneHistoryData,
-} from "./SceneHistory";
-
-import type {
-  SceneHistoryData,
-  SceneHistoryEntry,
-  SceneHistorySnapshot,
 } from "./SceneHistory";
 
 const createAppState = (name: string | null) => ({
@@ -182,7 +181,7 @@ describe("SceneHistory", () => {
     expect(target?.appState.selectedElementIds).toEqual({});
   });
 
-  it("trims old entries while keeping the first retained entry reconstructable", () => {
+  it("retains all entries with the cap disabled while keeping the first entry reconstructable", () => {
     const historyData = createHistoryData(
       Array.from({ length: 122 }, (_, index) => createEntry(index)),
     );
@@ -192,7 +191,7 @@ describe("SceneHistory", () => {
       trimmedHistoryData.currentEntryId!,
     );
 
-    expect(trimmedHistoryData.entries).toHaveLength(120);
+    expect(trimmedHistoryData.entries).toHaveLength(122);
     expect(trimmedHistoryData.entries[0].snapshot).toBeDefined();
     expect(trimmedHistoryData.entries[0].delta).toBeUndefined();
     expect(target?.appState.name).toBe("v121");
