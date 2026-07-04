@@ -139,6 +139,7 @@ export const BotConnectPanel = ({ botId }: { botId: string }) => {
     setRevokingToken(token);
     try {
       await revokeMcpToken(token);
+      setSnippet((current) => (current?.token === token ? null : current));
       await refresh();
     } catch (error) {
       console.error(error);

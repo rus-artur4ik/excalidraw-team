@@ -2,6 +2,8 @@ import path from "path";
 
 import { defineConfig } from "vitest/config";
 
+import ProgressReporter from "./scripts/vitest-progress-reporter";
+
 export default defineConfig({
   resolve: {
     alias: [
@@ -63,6 +65,9 @@ export default defineConfig({
   },
   //@ts-ignore
   test: {
+    reporters: process.env.CI
+      ? ["default", new ProgressReporter()]
+      : ["default"],
     // Since hooks are running in stack in v2, which means all hooks run serially whereas
     // we need to run them in parallel
     sequence: {
