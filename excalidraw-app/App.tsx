@@ -142,6 +142,7 @@ import {
 import { BoardSettingsDialog } from "./pages/BoardSettings";
 import { canWriteBoard, loadBoard, loadTeam, teamRoleOf } from "./data/boards";
 import { AdminPage } from "./pages/AdminPage";
+import { BotsPage } from "./pages/BotsPage";
 import { HomePage } from "./pages/HomePage";
 import { AppShell } from "./components/AppShell";
 import { getBoardRouteId, navigate, usePathname } from "./router";
@@ -1362,6 +1363,9 @@ const RoutedApp = () => {
     }
     if (pathname === "/admin") {
       return <AdminPage />;
+    }
+    if (pathname === "/bots") {
+      return <BotsPage />;
     }
   }
 

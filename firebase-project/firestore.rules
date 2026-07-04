@@ -133,6 +133,28 @@ service cloud.firestore {
 
     match /mcpTokens/{token} { allow read, write: if false; }
 
+    match /bots/{botId} {
+      allow get, list: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if signedIn()
+                       && request.resource.data.ownerUid == request.auth.uid
+                       && request.resource.data.name is string
+                       && request.resource.data.color is string
+                       && request.resource.data.boards is list
+                       && request.resource.data.keys().hasOnly(
+                            ['ownerUid', 'name', 'avatar', 'color', 'boards',
+                             'disabled', 'createdAt', 'updatedAt']);
+      allow update: if signedIn()
+                       && resource.data.ownerUid == request.auth.uid
+                       && request.resource.data.ownerUid == request.auth.uid
+                       && request.resource.data.name is string
+                       && request.resource.data.color is string
+                       && request.resource.data.boards is list
+                       && request.resource.data.diff(resource.data).affectedKeys()
+                            .hasOnly(['name', 'avatar', 'color', 'boards',
+                                      'disabled', 'updatedAt']);
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
     match /users/{uid} {
       allow get:   if signedIn() && request.auth.uid == uid;
       allow write: if signedIn() && request.auth.uid == uid;

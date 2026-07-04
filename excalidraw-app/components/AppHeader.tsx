@@ -1,6 +1,6 @@
 import {
+  brainIcon,
   ExcalLogo,
-  ExportIcon,
   loginIcon,
   MoonIcon,
   SunIcon,
@@ -30,11 +30,9 @@ const initials = (user: AppUser): string => {
 export const AppHeader = ({
   user,
   isAdmin,
-  onOpenMcp,
 }: {
   user: AppUser;
   isAdmin: boolean;
-  onOpenMcp?: () => void;
 }) => {
   const t = useAppT();
   const { signOut } = useAuth();
@@ -101,20 +99,18 @@ export const AppHeader = ({
           <div className="exa-menu" role="menu">
             <div className="exa-menu__name">{user.email}</div>
             <div className="exa-menu__sep" />
-            {onOpenMcp && (
-              <button
-                type="button"
-                role="menuitem"
-                className="exa-menu__item"
-                onClick={() => {
-                  setOpen(false);
-                  onOpenMcp();
-                }}
-              >
-                {ExportIcon}
-                {t("app.header.connectAi")}
-              </button>
-            )}
+            <button
+              type="button"
+              role="menuitem"
+              className="exa-menu__item"
+              onClick={() => {
+                setOpen(false);
+                navigate("/bots");
+              }}
+            >
+              {brainIcon}
+              {t("app.header.bots")}
+            </button>
             {isAdmin && (
               <button
                 type="button"

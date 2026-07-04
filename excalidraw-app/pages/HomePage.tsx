@@ -26,7 +26,6 @@ import {
 } from "./BoardFilter";
 import { BoardSettingsDialog } from "./BoardSettings";
 import { CreateBoardDialog } from "./CreateBoardDialog";
-import { McpConfigDialog } from "./McpConfigDialog";
 
 import type { BoardFilterValue } from "./BoardFilter";
 import type { Board, Team } from "../data/boards";
@@ -67,7 +66,6 @@ export const HomePage = () => {
   const [creating, setCreating] = useState(false);
   const [settingsBoard, setSettingsBoard] = useState<Board | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [mcpOpen, setMcpOpen] = useState(false);
   const [team, setTeam] = useState<Team | null>(null);
   const [filter, setFilter] = useState<BoardFilterValue>(DEFAULT_BOARD_FILTER);
 
@@ -165,11 +163,7 @@ export const HomePage = () => {
 
   return (
     <AppShell>
-      <AppHeader
-        user={user}
-        isAdmin={isAdmin}
-        onOpenMcp={() => setMcpOpen(true)}
-      />
+      <AppHeader user={user} isAdmin={isAdmin} />
 
       <div className="exa-page">
         <div className="exa-page-head">
@@ -243,8 +237,6 @@ export const HomePage = () => {
           }}
         />
       )}
-
-      {mcpOpen && <McpConfigDialog onClose={() => setMcpOpen(false)} />}
     </AppShell>
   );
 };
