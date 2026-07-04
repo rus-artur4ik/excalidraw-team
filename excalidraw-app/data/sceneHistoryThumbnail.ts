@@ -10,12 +10,13 @@ import { exportToCanvas } from "@excalidraw/utils/export";
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 
-import type { Box, ChangeFocus } from "./historyThumbnailFocus";
 import {
   computeFocusBounds,
   expandFocusBounds,
   isChangeFocusEmpty,
 } from "./historyThumbnailFocus";
+
+import type { Box, ChangeFocus } from "./historyThumbnailFocus";
 
 const THUMBNAIL_MAX_WIDTH = 160;
 const THUMBNAIL_MAX_HEIGHT = 96;

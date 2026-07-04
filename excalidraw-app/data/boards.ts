@@ -16,7 +16,6 @@ import {
 
 import { deleteBoardThumbnail } from "./boardThumbnail";
 
-import type { AppUser } from "./firebase";
 import {
   deleteBoardScenes,
   deleteRoomFiles,
@@ -25,6 +24,8 @@ import {
 } from "./firebase";
 
 import { generateCollaborationLinkData } from ".";
+
+import type { AppUser } from "./firebase";
 
 export type Visibility = "private" | "team" | "link";
 export type TeamRole = "admin" | "editor" | "viewer";

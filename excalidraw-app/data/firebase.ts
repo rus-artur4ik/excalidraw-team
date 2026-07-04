@@ -17,7 +17,6 @@ import {
   type User,
 } from "firebase/auth";
 
-import type { Unsubscribe } from "firebase/firestore";
 import {
   Bytes,
   doc,
@@ -47,12 +46,6 @@ import type {
 
 import { FIREBASE_STORAGE_PREFIXES } from "../app_constants";
 
-import type {
-  SceneHistoryData,
-  SceneHistoryEntry,
-  SceneHistoryEntryKind,
-  SceneHistorySnapshot,
-} from "./SceneHistory";
 import {
   createSceneHistoryId,
   createSceneHistorySnapshot,
@@ -61,8 +54,18 @@ import {
   SCENE_HISTORY_VERSION,
 } from "./SceneHistory";
 
-import type { SyncableExcalidrawElement } from ".";
 import { getSyncableElements } from ".";
+
+import type {
+  SceneHistoryData,
+  SceneHistoryEntry,
+  SceneHistoryEntryKind,
+  SceneHistorySnapshot,
+} from "./SceneHistory";
+
+import type { SyncableExcalidrawElement } from ".";
+
+import type { Unsubscribe } from "firebase/firestore";
 import type Portal from "../collab/Portal";
 import type { Socket } from "socket.io-client";
 

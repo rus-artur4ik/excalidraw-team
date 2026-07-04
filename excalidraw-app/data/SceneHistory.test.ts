@@ -1,16 +1,17 @@
 import type { StoreDelta } from "@excalidraw/element";
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
-import type {
-  SceneHistoryData,
-  SceneHistoryEntry,
-  SceneHistorySnapshot,
-} from "./SceneHistory";
 import {
   createCollabRestoreElements,
   isSceneHistoryDeltaRecordable,
   reconstructSceneHistoryData,
   trimSceneHistoryData,
+} from "./SceneHistory";
+
+import type {
+  SceneHistoryData,
+  SceneHistoryEntry,
+  SceneHistorySnapshot,
 } from "./SceneHistory";
 
 const createAppState = (name: string | null) => ({
