@@ -907,17 +907,17 @@
       transition: transform 150ms ease;
     }
 
-    input:checked + &__track {
+    input:checked + .exa-switch__track {
       background: var(--color-primary);
       border-color: var(--color-primary);
     }
 
-    input:checked + &__track &__thumb {
+    input:checked + .exa-switch__track .exa-switch__thumb {
       transform: translateX(1rem);
       background: var(--color-icon-white);
     }
 
-    input:focus-visible + &__track {
+    input:focus-visible + .exa-switch__track {
       outline: 2px solid var(--color-primary);
       outline-offset: 2px;
     }

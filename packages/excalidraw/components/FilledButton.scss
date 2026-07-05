@@ -53,11 +53,14 @@
     &.ExcButton--status-loading,
     &.ExcButton--status-success {
       pointer-events: none;
-      background-color: var(--color-success);
 
       .ExcButton__contents {
         visibility: hidden;
       }
+    }
+
+    &.ExcButton--status-success {
+      background-color: var(--color-success);
     }
 
     &[disabled] {
