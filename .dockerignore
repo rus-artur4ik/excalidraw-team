@@ -11,6 +11,7 @@
 !packages/
 !scripts/
 !tsconfig.json
+!vendor/
 !yarn.lock
 
 # keep (sub)sub directories at the end to exclude from explicit included
