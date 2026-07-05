@@ -370,6 +370,24 @@ body.excalidraw-cursor-resize * {
     justify-self: flex-start;
   }
 
+  .board-name-badge {
+    max-width: min(40vw, 320px);
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.5rem;
+    background-color: var(--island-bg-color);
+    box-shadow: var(--shadow-island);
+    color: var(--color-on-surface);
+    font-family: var(--ui-font);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: text;
+    cursor: text;
+  }
+
   .selected-shape-actions-container {
     width: fit-content;
 

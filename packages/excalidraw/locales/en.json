@@ -785,7 +785,8 @@
     },
     "editor": {
       "archivedBanner": "This board is archived.",
-      "restore": "Restore"
+      "restore": "Restore",
+      "nameTooltip": "Rename this board in Board settings"
     },
     "visibility": {
       "privateLabel": "Private",

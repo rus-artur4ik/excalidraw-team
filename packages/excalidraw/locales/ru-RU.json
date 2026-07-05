@@ -762,7 +762,8 @@
     },
     "editor": {
       "archivedBanner": "Эта доска в архиве.",
-      "restore": "Восстановить"
+      "restore": "Восстановить",
+      "nameTooltip": "Переименовать доску можно в настройках доски"
     },
     "visibility": {
       "privateLabel": "Личная",

@@ -63,7 +63,7 @@
       background-color: var(--color-success);
     }
 
-    &[disabled] {
+    &[disabled]:not(.ExcButton--status-loading):not(.ExcButton--status-success) {
       cursor: not-allowed;
 
       &.ExcButton--variant-filled,

@@ -304,6 +304,7 @@ const LayerUI = ({
             className={clsx("App-menu_top__left")}
           >
             {renderCanvasActions()}
+            {renderTopLeftUI?.(false, appState)}
             <div
               className={clsx("selected-shape-actions-container", {
                 "selected-shape-actions-container--compact":
