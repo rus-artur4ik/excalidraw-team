@@ -72,11 +72,21 @@ const BotCard = ({
           </span>
           <span className="exa-bot-card__badges">
             <span className="exa-badge">
-              {t("app.bots.boardCount", { count: bot.boards.length })}
+              {t(
+                bot.boards.length === 1
+                  ? "app.bots.boardCountOne"
+                  : "app.bots.boardCount",
+                { count: bot.boards.length },
+              )}
             </span>
             {tokenCount !== undefined && (
               <span className="exa-badge">
-                {t("app.bots.tokenCount", { count: tokenCount })}
+                {t(
+                  tokenCount === 1
+                    ? "app.bots.tokenCountOne"
+                    : "app.bots.tokenCount",
+                  { count: tokenCount },
+                )}
               </span>
             )}
             {statusBadge && (

@@ -113,10 +113,11 @@ export const BotConnectPanel = ({ botId }: { botId: string }) => {
   const mint = async () => {
     setMinting(true);
     setActionError(null);
+    const name = tokenName.trim() || undefined;
     try {
       const { token, mcpUrl, serverName, configSnippet } = await mintMcpToken(
         botId,
-        tokenName.trim() || undefined,
+        name,
       );
       setSnippet({
         token,
@@ -124,6 +125,16 @@ export const BotConnectPanel = ({ botId }: { botId: string }) => {
         serverName,
         config: JSON.stringify(configSnippet, null, 2),
       });
+      setTokens((prev) => [
+        ...(prev ?? []),
+        {
+          token,
+          name,
+          createdAt: Date.now(),
+          revoked: false,
+          lastUsedAt: null,
+        },
+      ]);
       setTokenName("");
       await refresh();
     } catch (error) {
