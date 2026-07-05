@@ -1,6 +1,7 @@
 import path from "path";
 
 import { defineConfig } from "vitest/config";
+import LiveProgressReporter from "@artavian/vitest-live-progress-reporter";
 
 import ProgressReporter from "./scripts/vitest-progress-reporter";
 import FlakyReporter from "./scripts/vitest-flaky-reporter";
@@ -70,6 +71,7 @@ export default defineConfig({
     reporters: process.env.CI
       ? [
           "default",
+          new LiveProgressReporter(),
           new ProgressReporter(),
           new FlakyReporter(),
           ["junit", { outputFile: "./test-results/junit.xml" }],
