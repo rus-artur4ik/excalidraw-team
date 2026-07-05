@@ -23,6 +23,7 @@ yarn-debug.log*
 yarn-error.log*
 packages/excalidraw/types
 coverage
+test-results/
 dev-dist
 html
 meta*.json
