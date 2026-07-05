@@ -32,9 +32,9 @@
     jsonpointer "^5.0.0"
     leven "^3.1.0"
 
-"@artavian/vitest-live-progress-reporter@file:./vendor/artavian-vitest-live-progress-reporter-1.0.0.tgz":
-  version "1.0.0"
-  resolved "file:./vendor/artavian-vitest-live-progress-reporter-1.0.0.tgz#a2ee15db8c55b0c199b53d098b48f5ce23e109d6"
+"@artavian/vitest-live-progress-reporter@file:./vendor/artavian-vitest-live-progress-reporter-1.0.2.tgz":
+  version "1.0.2"
+  resolved "file:./vendor/artavian-vitest-live-progress-reporter-1.0.2.tgz#60093ed5cf1a4a093efc7f050b337a2156397a9e"
 
 "@babel/code-frame@7.12.11":
   version "7.12.11"
