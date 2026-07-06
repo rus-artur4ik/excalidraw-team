@@ -12,7 +12,6 @@
 .yarn
 *.log
 *.tgz
-!vendor/*.tgz
 build
 dist
 firebase
