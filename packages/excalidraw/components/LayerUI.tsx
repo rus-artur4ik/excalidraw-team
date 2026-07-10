@@ -486,7 +486,9 @@ const LayerUI = ({
       {appState.openDialog?.name === "ttd" && <TTDDialog __fallback />}
       {/* ------------------------------------------------------------------ */}
 
-      {appState.isLoading && <LoadingMessage delay={250} />}
+      {appState.isLoading && UIOptions.loadingOverlay !== false && (
+        <LoadingMessage delay={250} />
+      )}
       {appState.errorMessage && (
         <ErrorDialog onClose={() => setAppState({ errorMessage: null })}>
           {appState.errorMessage}

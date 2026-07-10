@@ -811,6 +811,9 @@
       "name": "Name",
       "access": "Access",
       "botAccess": "Bot access",
+      "bots": "Grant access to your bots",
+      "botsNoneHint": "Bot access is off for this board.",
+      "botsError": "The board was created, but granting bot access failed. Try again.",
       "error": "Couldn't create the board. Try again."
     },
     "settings": {

@@ -1,52 +1,50 @@
 import type {
-  IMAGE_MIME_TYPES,
-  UserIdleState,
-  throttleRAF,
-  MIME_TYPES,
   EditorInterface,
+  IMAGE_MIME_TYPES,
+  MIME_TYPES,
+  throttleRAF,
+  UserIdleState,
 } from "@excalidraw/common";
-
-import type { LinearElementEditor } from "@excalidraw/element";
-
-import type { MaybeTransformHandleType } from "@excalidraw/element";
-
-import type {
-  PointerType,
-  ExcalidrawLinearElement,
-  NonDeletedExcalidrawElement,
-  NonDeleted,
-  TextAlign,
-  ExcalidrawElement,
-  GroupId,
-  ExcalidrawBindableElement,
-  Arrowhead,
-  FontFamilyValues,
-  FileId,
-  Theme,
-  StrokeRoundness,
-  ExcalidrawEmbeddableElement,
-  ExcalidrawMagicFrameElement,
-  ExcalidrawFrameLikeElement,
-  ExcalidrawElementType,
-  ExcalidrawIframeLikeElement,
-  OrderedExcalidrawElement,
-  ExcalidrawNonSelectionElement,
-  BindMode,
-  ExcalidrawTextElement,
-} from "@excalidraw/element/types";
-
-import type {
-  Merge,
-  MaybePromise,
-  ValueOf,
-  MakeBrand,
-} from "@excalidraw/common/utility-types";
 
 import type {
   CaptureUpdateActionType,
   DurableIncrement,
   EphemeralIncrement,
+  LinearElementEditor,
+  MaybeTransformHandleType,
 } from "@excalidraw/element";
+
+import type {
+  Arrowhead,
+  BindMode,
+  ExcalidrawBindableElement,
+  ExcalidrawElement,
+  ExcalidrawElementType,
+  ExcalidrawEmbeddableElement,
+  ExcalidrawFrameLikeElement,
+  ExcalidrawIframeLikeElement,
+  ExcalidrawLinearElement,
+  ExcalidrawMagicFrameElement,
+  ExcalidrawNonSelectionElement,
+  ExcalidrawTextElement,
+  FileId,
+  FontFamilyValues,
+  GroupId,
+  NonDeleted,
+  NonDeletedExcalidrawElement,
+  OrderedExcalidrawElement,
+  PointerType,
+  StrokeRoundness,
+  TextAlign,
+  Theme,
+} from "@excalidraw/element/types";
+
+import type {
+  MakeBrand,
+  MaybePromise,
+  Merge,
+  ValueOf,
+} from "@excalidraw/common/utility-types";
 import type { GlobalPoint } from "@excalidraw/math";
 
 import type { Action } from "./actions/types";
@@ -60,8 +58,7 @@ import type { ImportedDataState } from "./data/types";
 
 import type { Language } from "./i18n";
 import type { isOverScrollBars } from "./scene/scrollbars";
-import type React from "react";
-import type { JSX } from "react";
+import type React, { JSX } from "react";
 
 export type { App };
 
@@ -766,6 +763,12 @@ export type UIOptions = Partial<{
   tools: {
     image: boolean;
   };
+  /**
+   * Whether to render the built-in full-screen spinner while
+   * `appState.isLoading` is true. Defaults to true. Host apps that render
+   * their own loading overlay should disable it to avoid a double spinner.
+   */
+  loadingOverlay: boolean;
   /**
    * Optionally control the editor form factor and desktop UI mode from the host app.
    * If not provided, we will take care of it internally.
