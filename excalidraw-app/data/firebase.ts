@@ -786,13 +786,17 @@ export const loadFilesFromFirebase = async (
   prefix: string,
   decryptionKey: string,
   filesIds: readonly FileId[],
+  onProgress?: (settled: number, total: number) => void,
 ) => {
   const loadedFiles: BinaryFileData[] = [];
   const erroredFiles = new Map<FileId, true>();
   const token = await getCurrentUserIdToken();
 
+  const uniqueIds = [...new Set(filesIds)];
+  let settled = 0;
+
   await Promise.all(
-    [...new Set(filesIds)].map(async (id) => {
+    uniqueIds.map(async (id) => {
       try {
         const response = await fetch(fileServiceUrl(prefix, id), {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -822,6 +826,9 @@ export const loadFilesFromFirebase = async (
       } catch (error: any) {
         erroredFiles.set(id, true);
         console.error(error);
+      } finally {
+        settled += 1;
+        onProgress?.(settled, uniqueIds.length);
       }
     }),
   );

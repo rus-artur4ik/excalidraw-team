@@ -101,6 +101,7 @@ import Collab, {
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
 import { BoardNameBadge } from "./components/BoardNameBadge";
+import { CollabLoadingOverlay } from "./components/CollabLoadingOverlay";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
 import {
   ExportToExcalidrawPlus,
@@ -973,6 +974,7 @@ const ExcalidrawWrapper = () => {
         "is-collaborating": isCollaborating,
       })}
     >
+      <CollabLoadingOverlay theme={editorTheme} />
       <Excalidraw
         onChange={onChange}
         viewModeEnabled={isBoardViewOnly}

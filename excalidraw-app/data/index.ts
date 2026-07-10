@@ -8,14 +8,18 @@ import {
   IV_LENGTH_BYTES,
 } from "@excalidraw/excalidraw/data/encryption";
 import { serializeAsJSON } from "@excalidraw/excalidraw/data/json";
-import { isInvisiblySmallElement } from "@excalidraw/element";
-import { isInitializedImageElement } from "@excalidraw/element";
+
+import {
+  isInitializedImageElement,
+  isInvisiblySmallElement,
+} from "@excalidraw/element";
 import { t } from "@excalidraw/excalidraw/i18n";
+
 import { bytesToHexString } from "@excalidraw/common";
 
 import type { UserIdleState } from "@excalidraw/common";
-import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
 import type { SceneBounds } from "@excalidraw/element";
+import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
 import type {
   ExcalidrawElement,
   FileId,
@@ -101,6 +105,7 @@ export type SocketUpdateDataSource = {
       selectedElementIds: AppState["selectedElementIds"];
       username: string;
       avatarUrl?: string | null;
+      color?: { background: string; stroke: string } | null;
     };
   };
   USER_VISIBLE_SCENE_BOUNDS: {

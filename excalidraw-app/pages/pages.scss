@@ -269,11 +269,20 @@
   }
 
   .exa-section.exa-danger-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.625rem;
     margin-top: 1.5rem;
-    padding: 0.875rem 1rem 1rem;
+    padding: 1rem;
     border: 1px solid var(--color-danger);
     border-radius: var(--border-radius-lg);
     background: var(--color-danger-background);
+
+    .exa-label,
+    .exa-hint {
+      margin: 0;
+    }
   }
 
   .exa-danger-zone__title {
@@ -538,6 +547,135 @@
   .exa-role-text {
     color: var(--text-muted-color);
     font-size: 0.8125rem;
+  }
+
+  .exa-token-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .exa-token-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--default-border-color);
+    border-radius: var(--border-radius-lg);
+    background: var(--island-bg-color);
+    animation: exa-row-in 150ms ease-out;
+  }
+
+  .exa-token-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .exa-token-card__name {
+    min-width: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .exa-token-card__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 2.5rem;
+    margin: 0;
+  }
+
+  .exa-token-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1875rem;
+
+    dt {
+      color: var(--text-muted-color);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    dd {
+      margin: 0;
+      font-size: 0.8125rem;
+      color: var(--color-on-surface);
+    }
+  }
+
+  .exa-connect-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem 1rem;
+    margin: 0.75rem 0 0.25rem;
+  }
+
+  .exa-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .exa-field__label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted-color);
+  }
+
+  .exa-select {
+    appearance: none;
+    -webkit-appearance: none;
+    min-width: 12rem;
+    padding: 0.4375rem 2rem 0.4375rem 0.75rem;
+    border: 1px solid var(--default-border-color);
+    border-radius: var(--border-radius-md);
+    background-color: var(--island-bg-color);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.625rem center;
+    background-size: 1rem;
+    color: var(--color-on-surface);
+    font-family: var(--ui-font);
+    font-size: 0.8125rem;
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 1px;
+      border-color: var(--color-primary);
+    }
+  }
+
+  .exa-scope-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 0.4375rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
+
+    input {
+      margin: 0;
+      cursor: pointer;
+      accent-color: var(--color-primary);
+    }
+
+    &[aria-disabled="true"] {
+      opacity: 0.5;
+      cursor: default;
+
+      input {
+        cursor: default;
+      }
+    }
   }
 
   .exa-code-head {

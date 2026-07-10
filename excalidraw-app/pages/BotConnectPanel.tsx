@@ -20,31 +20,55 @@ type Snippet = {
   config: string;
 };
 
-const buildCommands = (s: Snippet): { label: string; command: string }[] => {
+type AgentId = "claude" | "codex" | "gemini" | "vscode" | "config";
+
+const AGENTS: { id: AgentId; label: string; projectScope: boolean }[] = [
+  { id: "claude", label: "Claude Code", projectScope: true },
+  { id: "codex", label: "Codex CLI", projectScope: false },
+  { id: "gemini", label: "Gemini CLI", projectScope: true },
+  { id: "vscode", label: "VS Code", projectScope: true },
+  { id: "config", label: "Config file (JSON)", projectScope: false },
+];
+
+const buildCommand = (
+  s: Snippet,
+  agent: AgentId,
+  projectScope: boolean,
+): string => {
   const auth = `Authorization: Bearer ${s.token}`;
-  return [
-    {
-      label: "Claude Code",
-      command: `claude mcp add --transport http ${s.serverName} ${s.mcpUrl} --header "${auth}"`,
-    },
-    {
-      label: "Codex CLI",
-      command: `mkdir -p ~/.codex && cat >> ~/.codex/config.toml <<'EOF'
+  switch (agent) {
+    case "claude":
+      return `claude mcp add --scope ${
+        projectScope ? "local" : "user"
+      } --transport http ${s.serverName} ${s.mcpUrl} --header "${auth}"`;
+    case "gemini":
+      return `gemini mcp add --scope ${
+        projectScope ? "project" : "user"
+      } --transport http ${s.serverName} ${s.mcpUrl} --header "${auth}"`;
+    case "vscode":
+      return projectScope
+        ? `mkdir -p .vscode && cat > .vscode/mcp.json <<'EOF'
+{
+  "servers": {
+    "${s.serverName}": {
+      "type": "http",
+      "url": "${s.mcpUrl}",
+      "headers": { "Authorization": "Bearer ${s.token}" }
+    }
+  }
+}
+EOF`
+        : `code --add-mcp '{"name":"${s.serverName}","type":"http","url":"${s.mcpUrl}","headers":{"Authorization":"Bearer ${s.token}"}}'`;
+    case "codex":
+      return `mkdir -p ~/.codex && cat >> ~/.codex/config.toml <<'EOF'
 
 [mcp_servers.${s.serverName.replace(/-/g, "_")}]
 url = "${s.mcpUrl}"
 http_headers = { Authorization = "Bearer ${s.token}" }
-EOF`,
-    },
-    {
-      label: "Gemini CLI",
-      command: `gemini mcp add --transport http ${s.serverName} ${s.mcpUrl} --header "${auth}"`,
-    },
-    {
-      label: "VS Code",
-      command: `code --add-mcp '{"name":"${s.serverName}","type":"http","url":"${s.mcpUrl}","headers":{"Authorization":"Bearer ${s.token}"}}'`,
-    },
-  ];
+EOF`;
+    case "config":
+      return s.config;
+  }
 };
 
 const CopyButton = ({ value, what }: { value: string; what: string }) => {
@@ -77,12 +101,16 @@ const CopyButton = ({ value, what }: { value: string; what: string }) => {
 const tokenLabel = (token: McpTokenSummary) =>
   token.name?.trim() || maskToken(token.token);
 
+const formatDate = (value: number) => new Date(value).toLocaleDateString();
+
 export const BotConnectPanel = ({ botId }: { botId: string }) => {
   const t = useAppT();
   const [tokens, setTokens] = useState<McpTokenSummary[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [snippet, setSnippet] = useState<Snippet | null>(null);
   const [tokenName, setTokenName] = useState("");
+  const [agent, setAgent] = useState<AgentId>("claude");
+  const [projectScope, setProjectScope] = useState(false);
   const [minting, setMinting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
@@ -90,6 +118,8 @@ export const BotConnectPanel = ({ botId }: { botId: string }) => {
     null,
   );
   const anyBusy = minting || revokingToken !== null;
+  const selectedAgent = AGENTS.find((a) => a.id === agent) ?? AGENTS[0];
+  const scopeEnabled = selectedAgent.projectScope;
 
   const refresh = useCallback(
     () =>
@@ -207,30 +237,40 @@ export const BotConnectPanel = ({ botId }: { botId: string }) => {
       ) : active.length === 0 ? (
         <p className="exa-empty">{t("app.bots.noTokens")}</p>
       ) : (
-        <div className="exa-people">
+        <div className="exa-token-list">
           {active.map((token) => (
-            <div key={token.token} className="exa-person-row">
-              <span className="exa-person-row__email">{tokenLabel(token)}</span>
-              <span className="exa-role-text">
-                {token.lastUsedAt
-                  ? t("app.bots.lastUsed", {
-                      when: new Date(token.lastUsedAt).toLocaleDateString(),
-                    })
-                  : t("app.bots.neverUsed")}
-              </span>
-              <span className="exa-role-text">
-                {new Date(token.createdAt).toLocaleDateString()}
-              </span>
-              <FilledButton
-                variant="outlined"
-                color="danger"
-                label={t("app.bots.revokeToken", { token: tokenLabel(token) })}
-                status={revokingToken === token.token ? "loading" : undefined}
-                disabled={anyBusy}
-                onClick={() => setRevokeTarget(token)}
-              >
-                {t("app.bots.revoke")}
-              </FilledButton>
+            <div key={token.token} className="exa-token-card">
+              <div className="exa-token-card__head">
+                <span className="exa-token-card__name">
+                  {tokenLabel(token)}
+                </span>
+                <FilledButton
+                  variant="outlined"
+                  color="danger"
+                  label={t("app.bots.revokeToken", {
+                    token: tokenLabel(token),
+                  })}
+                  status={revokingToken === token.token ? "loading" : undefined}
+                  disabled={anyBusy}
+                  onClick={() => setRevokeTarget(token)}
+                >
+                  {t("app.bots.revoke")}
+                </FilledButton>
+              </div>
+              <dl className="exa-token-card__meta">
+                <div className="exa-token-meta">
+                  <dt>{t("app.bots.createdLabel")}</dt>
+                  <dd>{formatDate(token.createdAt)}</dd>
+                </div>
+                <div className="exa-token-meta">
+                  <dt>{t("app.bots.lastUsedLabel")}</dt>
+                  <dd>
+                    {token.lastUsedAt
+                      ? formatDate(token.lastUsedAt)
+                      : t("app.bots.neverUsed")}
+                  </dd>
+                </div>
+              </dl>
             </div>
           ))}
         </div>
@@ -240,24 +280,43 @@ export const BotConnectPanel = ({ botId }: { botId: string }) => {
         <>
           <p className="exa-note">{t("app.bots.newToken")}</p>
 
-          {buildCommands(snippet).map(({ label, command }) => (
-            <div key={label}>
-              <div className="exa-code-head">
-                <span>{label}</span>
-                <CopyButton value={command} what={label} />
-              </div>
-              <pre className="exa-code">{command}</pre>
-            </div>
-          ))}
+          <div className="exa-connect-controls">
+            <label className="exa-field">
+              <span className="exa-field__label">{t("app.bots.agent")}</span>
+              <select
+                className="exa-select"
+                value={agent}
+                onChange={(event) => setAgent(event.target.value as AgentId)}
+              >
+                {AGENTS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="exa-scope-check" aria-disabled={!scopeEnabled}>
+              <input
+                type="checkbox"
+                checked={scopeEnabled && projectScope}
+                disabled={!scopeEnabled}
+                onChange={(event) => setProjectScope(event.target.checked)}
+              />
+              <span>{t("app.bots.scopeProjectOnly")}</span>
+            </label>
+          </div>
 
           <div className="exa-code-head">
-            <span>{t("app.bots.rawConfig")}</span>
+            <span>{selectedAgent.label}</span>
             <CopyButton
-              value={snippet.config}
-              what={t("app.bots.configWhat")}
+              value={buildCommand(snippet, agent, scopeEnabled && projectScope)}
+              what={selectedAgent.label}
             />
           </div>
-          <pre className="exa-code">{snippet.config}</pre>
+          <pre className="exa-code">
+            {buildCommand(snippet, agent, scopeEnabled && projectScope)}
+          </pre>
         </>
       )}
 

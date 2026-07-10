@@ -27,6 +27,7 @@ import { t } from "@excalidraw/excalidraw/i18n";
 import { withBatchedUpdates } from "@excalidraw/excalidraw/reactUtils";
 
 import throttle from "lodash.throttle";
+import debounce from "lodash.debounce";
 import { PureComponent } from "react";
 
 import { bumpElementVersions } from "@excalidraw/excalidraw/data/restore";
@@ -53,11 +54,13 @@ import type { Mutable, ValueOf } from "@excalidraw/common/utility-types";
 
 import { appJotaiStore, atom } from "../app-jotai";
 import {
+  COLLAB_INITIAL_LOAD_MAX_MS,
   CURSOR_SYNC_TIMEOUT,
   FILE_UPLOAD_MAX_BYTES,
   FIREBASE_STORAGE_PREFIXES,
-  INITIAL_SCENE_UPDATE_TIMEOUT,
   LOAD_IMAGES_TIMEOUT,
+  SAVE_TO_FIREBASE_DEBOUNCE_MS,
+  SAVE_TO_FIREBASE_MAX_WAIT_MS,
   WS_SUBTYPES,
   SYNC_FULL_SCENE_INTERVAL_MS,
   WS_EVENTS,
@@ -109,6 +112,20 @@ export const collabAPIAtom = atom<CollabAPI | null>(null);
 export const isCollaboratingAtom = atom(false);
 export const isOfflineAtom = atom(false);
 
+export type CollabSceneLoad = {
+  active: boolean;
+  phase: "scene" | "images";
+  loaded: number;
+  total: number;
+};
+
+export const collabSceneLoadAtom = atom<CollabSceneLoad>({
+  active: false,
+  phase: "scene",
+  loaded: 0,
+  total: 0,
+});
+
 interface CollabState {
   errorMessage: string | null;
   /** errors related to saving */
@@ -152,7 +169,11 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   activeIntervalId: number | null;
   idleTimeoutId: number | null;
 
-  private socketInitializationTimer?: number;
+  private initialLoadPending = false;
+  private initialImageProgress:
+    | ((settled: number, total: number) => void)
+    | null = null;
+  private initialLoadSafetyTimer?: number;
   private lastBroadcastedOrReceivedSceneVersion: number = -1;
   private collaborators = new Map<SocketId, Collaborator>();
   private sceneHistorySessionId = createSceneHistoryId();
@@ -180,7 +201,12 @@ class Collab extends PureComponent<CollabProps, CollabState> {
           throw new AbortError();
         }
 
-        return loadFilesFromFirebase(`files/rooms/${roomId}`, roomKey, fileIds);
+        return loadFilesFromFirebase(
+          `files/rooms/${roomId}`,
+          roomKey,
+          fileIds,
+          this.initialImageProgress ?? undefined,
+        );
       },
       saveFiles: async ({ addedFiles }) => {
         const { roomId, roomKey } = this.portal;
@@ -311,6 +337,30 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
   private setIsCollaborating = (isCollaborating: boolean) => {
     appJotaiStore.set(isCollaboratingAtom, isCollaborating);
+  };
+
+  private setSceneLoad = (load: CollabSceneLoad) => {
+    appJotaiStore.set(collabSceneLoadAtom, load);
+  };
+
+  private beginInitialLoad = () => {
+    this.initialLoadPending = true;
+    this.setSceneLoad({ active: true, phase: "scene", loaded: 0, total: 0 });
+    window.clearTimeout(this.initialLoadSafetyTimer);
+    this.initialLoadSafetyTimer = window.setTimeout(
+      this.finishInitialLoad,
+      COLLAB_INITIAL_LOAD_MAX_MS,
+    );
+  };
+
+  private finishInitialLoad = () => {
+    if (!this.initialLoadPending) {
+      return;
+    }
+    this.initialLoadPending = false;
+    this.initialImageProgress = null;
+    window.clearTimeout(this.initialLoadSafetyTimer);
+    this.setSceneLoad({ active: false, phase: "scene", loaded: 0, total: 0 });
   };
 
   private onUnload = () => {
@@ -484,6 +534,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
   private destroySocketClient = (opts?: { isUnload: boolean }) => {
     this.lastBroadcastedOrReceivedSceneVersion = -1;
+    this.finishInitialLoad();
     this.portal.close();
     this.fileManager.reset();
     if (!opts?.isUnload) {
@@ -522,7 +573,33 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       })
       .map((element) => (element as InitializedExcalidrawImageElement).fileId);
 
-    return await this.fileManager.getFiles(unfetchedImages);
+    if (this.initialLoadPending) {
+      if (unfetchedImages.length === 0) {
+        this.finishInitialLoad();
+      } else {
+        this.setSceneLoad({
+          active: true,
+          phase: "images",
+          loaded: 0,
+          total: unfetchedImages.length,
+        });
+        this.initialImageProgress = (settled, total) =>
+          this.setSceneLoad({
+            active: true,
+            phase: "images",
+            loaded: settled,
+            total,
+          });
+      }
+    }
+
+    try {
+      return await this.fileManager.getFiles(unfetchedImages);
+    } finally {
+      if (this.initialLoadPending && unfetchedImages.length > 0) {
+        this.finishInitialLoad();
+      }
+    }
   };
 
   private decryptPayload = async (
@@ -626,8 +703,15 @@ class Collab extends PureComponent<CollabProps, CollabState> {
     }
 
     if (existingRoomLinkData) {
-      // when joining existing room, don't merge it with current scene data
-      this.excalidrawAPI.resetScene();
+      // load Firebase immediately rather than block on a peer SCENE_INIT; peer
+      // INIT/UPDATE frames still reconcile by element version on top
+      this.beginInitialLoad();
+      this.initializeRoom({
+        roomLinkData: existingRoomLinkData,
+        fetchScene: true,
+      }).then((scene) => {
+        scenePromise.resolve(scene);
+      });
     } else {
       const elements = this.excalidrawAPI.getSceneElements().map((element) => {
         if (isImageElement(element) && element.status === "saved") {
@@ -648,13 +732,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       this.saveCollabRoomToFirebase(getSyncableElements(elements));
     }
 
-    // fallback in case you're not alone in the room but still don't receive
-    // initial SCENE_INIT message
-    this.socketInitializationTimer = window.setTimeout(
-      fallbackInitializationHandler,
-      INITIAL_SCENE_UPDATE_TIMEOUT,
-    );
-
     // All socket listeners are moving to Portal
     this.portal.socket.on(
       "client-broadcast",
@@ -673,14 +750,13 @@ class Collab extends PureComponent<CollabProps, CollabState> {
           case WS_SUBTYPES.INVALID_RESPONSE:
             return;
           case WS_SUBTYPES.INIT: {
+            const remoteElements = toBrandedType<
+              readonly RemoteExcalidrawElement[]
+            >(decryptedData.payload.elements);
+            const reconciledElements = this._reconcileElements(remoteElements);
+            this.handleRemoteSceneUpdate(reconciledElements);
             if (!this.portal.socketInitialized) {
               this.initializeRoom({ fetchScene: false });
-              const remoteElements = toBrandedType<
-                readonly RemoteExcalidrawElement[]
-              >(decryptedData.payload.elements);
-              const reconciledElements =
-                this._reconcileElements(remoteElements);
-              this.handleRemoteSceneUpdate(reconciledElements);
               // noop if already resolved via init from firebase
               scenePromise.resolve({
                 elements: reconciledElements,
@@ -699,8 +775,14 @@ class Collab extends PureComponent<CollabProps, CollabState> {
             );
             break;
           case WS_SUBTYPES.MOUSE_LOCATION: {
-            const { pointer, button, username, selectedElementIds, avatarUrl } =
-              decryptedData.payload;
+            const {
+              pointer,
+              button,
+              username,
+              selectedElementIds,
+              avatarUrl,
+              color,
+            } = decryptedData.payload;
 
             const socketId: SocketUpdateDataSource["MOUSE_LOCATION"]["payload"]["socketId"] =
               decryptedData.payload.socketId ||
@@ -713,6 +795,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
               selectedElementIds,
               username,
               avatarUrl: avatarUrl ?? undefined,
+              color: color ?? undefined,
             });
 
             break;
@@ -806,7 +889,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
         roomLinkData: { roomId: string; roomKey: string } | null;
       }
     | { fetchScene: false; roomLinkData?: null }) => {
-    clearTimeout(this.socketInitializationTimer!);
     if (this.portal.socket && this.fallbackInitializationHandler) {
       this.portal.socket.off(
         "connect_error",
@@ -814,6 +896,12 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       );
     }
     if (fetchScene && roomLinkData && this.portal.socket) {
+      if (this.portal.socketInitialized) {
+        return null;
+      }
+      // claim init synchronously so a concurrent first-in-room / connect_error
+      // handler doesn't kick off a second Firebase fetch + resetScene
+      this.portal.socketInitialized = true;
       this.excalidrawAPI.resetScene();
 
       try {
@@ -837,8 +925,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
       } catch (error: any) {
         // log the error and move on. other peers will sync us the scene.
         console.error(error);
-      } finally {
-        this.portal.socketInitialized = true;
       }
     } else {
       this.portal.socketInitialized = true;
@@ -1123,7 +1209,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
     this.setLastBroadcastedOrReceivedSceneVersion(newVersion);
   }, SYNC_FULL_SCENE_INTERVAL_MS);
 
-  queueSaveToFirebase = throttle(
+  queueSaveToFirebase = debounce(
     () => {
       if (this.portal.socketInitialized) {
         this.saveCollabRoomToFirebase(
@@ -1133,8 +1219,8 @@ class Collab extends PureComponent<CollabProps, CollabState> {
         );
       }
     },
-    SYNC_FULL_SCENE_INTERVAL_MS,
-    { leading: false },
+    SAVE_TO_FIREBASE_DEBOUNCE_MS,
+    { maxWait: SAVE_TO_FIREBASE_MAX_WAIT_MS },
   );
 
   setUsername = (username: string) => {

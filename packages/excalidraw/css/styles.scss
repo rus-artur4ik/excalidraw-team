@@ -370,22 +370,32 @@ body.excalidraw-cursor-resize * {
     justify-self: flex-start;
   }
 
+  .App-menu_top__left-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-width: 0;
+  }
+
   .board-name-badge {
-    max-width: min(40vw, 320px);
-    padding: 0.25rem 0.625rem;
-    border-radius: 0.5rem;
-    background-color: var(--island-bg-color);
-    box-shadow: var(--shadow-island);
+    max-width: min(38vw, 340px);
     color: var(--color-on-surface);
     font-family: var(--ui-font);
-    font-size: 0.75rem;
+    font-size: 0.9375rem;
     font-weight: 600;
-    line-height: 1.25;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     user-select: text;
     cursor: text;
+    opacity: 0.9;
+    transition: opacity 150ms ease;
+
+    &:hover {
+      opacity: 1;
+    }
   }
 
   .selected-shape-actions-container {

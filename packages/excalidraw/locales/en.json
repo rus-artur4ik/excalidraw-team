@@ -1,5 +1,7 @@
 {
   "labels": {
+    "loadingScene": "Loading board…",
+    "loadingImages": "Loading images… {{progress}}%",
     "paste": "Paste",
     "pasteAsPlaintext": "Paste as plaintext",
     "pasteCharts": "Paste charts",
@@ -882,9 +884,13 @@
       "connectIntro": "Mint a token to connect this bot from an MCP client (Claude Code, Codex, etc.). It works only on this bot's boards, within each board's role. It's shown only once.",
       "tokenNamePlaceholder": "Token name (optional)",
       "createToken": "Create token",
+      "agent": "Agent",
+      "scopeProjectOnly": "Install for this project only",
       "tokensLoading": "Loading tokens…",
       "tokensLoadError": "Couldn't load tokens.",
       "noTokens": "No active tokens.",
+      "createdLabel": "Created",
+      "lastUsedLabel": "Last used",
       "lastUsed": "Last used {{when}}",
       "neverUsed": "Never used",
       "revoke": "Revoke",
