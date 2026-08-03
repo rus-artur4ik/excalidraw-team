@@ -67,6 +67,10 @@ export default defineConfig({
   //@ts-ignore
   test: {
     retry: process.env.CI ? 2 : 0,
+    // CI packs typecheck, lint and three test suites onto one agent, where the
+    // heaviest jsdom tests need more than the 5s default wall-clock budget.
+    testTimeout: process.env.CI ? 30_000 : 5_000,
+    hookTimeout: process.env.CI ? 30_000 : 10_000,
     reporters: process.env.CI
       ? [
           "default",
