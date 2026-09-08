@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBot, deleteBot, listMyBots, updateBot } from "./bots";
+import { createBot, deleteBot, listMyBots, loadBot, updateBot } from "./bots";
 
 const mocks = vi.hoisted(() => ({
+  getDoc: vi.fn(),
   getDocs: vi.fn(),
   setDoc: vi.fn((..._args: unknown[]) => Promise.resolve(undefined)),
   updateDoc: vi.fn((..._args: unknown[]) => Promise.resolve(undefined)),
@@ -17,6 +18,7 @@ vi.mock("firebase/firestore", () => ({
   doc: vi.fn((_db: unknown, _col?: string, id?: string) => ({
     id: id ?? "generated-id",
   })),
+  getDoc: mocks.getDoc,
   getDocs: mocks.getDocs,
   setDoc: mocks.setDoc,
   updateDoc: mocks.updateDoc,
@@ -68,9 +70,21 @@ describe("createBot", () => {
       ownerUid: "u",
       name: "Helper",
       boards: [{ boardId: "x", role: "read" }],
+      canCreateBoards: false,
       disabled: false,
     });
     expect(bot).toMatchObject({ id: "generated-id", name: "Helper" });
+  });
+
+  it("persists the board-creation permission when granted", async () => {
+    await createBot({
+      name: "Helper",
+      avatar: { kind: "emoji", value: "🤖" },
+      color: "#123456",
+      canCreateBoards: true,
+    });
+    const payload = mocks.setDoc.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.canCreateBoards).toBe(true);
   });
 
   it("refuses when signed out", async () => {
@@ -83,6 +97,24 @@ describe("createBot", () => {
       }),
     ).rejects.toThrow("signed in");
     expect(mocks.setDoc).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadBot", () => {
+  it("returns a normalized bot or null when it is gone", async () => {
+    mocks.getDoc.mockResolvedValue({
+      exists: () => true,
+      id: "bot1",
+      data: () => ({ ownerUid: "u", name: "Helper", canCreateBoards: true }),
+    });
+    expect(await loadBot("bot1")).toMatchObject({
+      id: "bot1",
+      boards: [],
+      canCreateBoards: true,
+    });
+
+    mocks.getDoc.mockResolvedValue({ exists: () => false });
+    expect(await loadBot("bot1")).toBeNull();
   });
 });
 

@@ -9,7 +9,7 @@ import { useAppT } from "../components/useAppT";
 
 import { AppConfirm } from "../components/AppConfirm";
 import { AppDialog } from "../components/AppDialog";
-import { createBot, deleteBot, updateBot } from "../data/bots";
+import { createBot, deleteBot, loadBot, updateBot } from "../data/bots";
 import { stopBot } from "../data/mcpTokens";
 
 import { BotConnectPanel } from "./BotConnectPanel";
@@ -74,6 +74,7 @@ export const BotDialog = ({
       name: bot?.name ?? "",
       emoji: bot?.avatar?.value ?? BOT_EMOJIS[0],
       color: bot?.color ?? BOT_COLORS[0],
+      canCreateBoards: bot?.canCreateBoards === true,
       enabled: !bot?.disabled,
       bindingsKey: bindingsKey(bindingsFromBot(bot)),
     }),
@@ -83,6 +84,9 @@ export const BotDialog = ({
   const [name, setName] = useState(baseline.name);
   const [emoji, setEmoji] = useState<string>(baseline.emoji);
   const [color, setColor] = useState<string>(baseline.color);
+  const [canCreateBoards, setCanCreateBoards] = useState(
+    baseline.canCreateBoards,
+  );
   const [enabled, setEnabled] = useState(baseline.enabled);
   const [bindings, setBindings] = useState<Map<string, BindingRole>>(
     bindingsFromBot(bot),
@@ -109,6 +113,7 @@ export const BotDialog = ({
     name.trim() !== baseline.name.trim() ||
     emoji !== baseline.emoji ||
     color !== baseline.color ||
+    canCreateBoards !== baseline.canCreateBoards ||
     enabled !== baseline.enabled ||
     bindingsKey(bindings) !== baseline.bindingsKey;
 
@@ -137,17 +142,39 @@ export const BotDialog = ({
   const setBoardRole = (boardId: string, role: BindingRole) =>
     setBindings((prev) => new Map(prev).set(boardId, role));
 
+  // The dialog only renders boards the owner can list, and a bot allowed to
+  // create boards can gain one while this dialog is open. Saving must not turn
+  // the allow-list into "whatever the dialog happened to show".
+  const mergeUnlistedBindings = async (
+    chosen: BotBoardBinding[],
+  ): Promise<BotBoardBinding[]> => {
+    if (!bot) {
+      return chosen;
+    }
+    const fresh = await loadBot(bot.id).catch(() => null);
+    if (!fresh) {
+      return chosen;
+    }
+    const listed = new Set(boards.map((board) => board.roomId));
+    const unlisted = fresh.boards.filter(
+      (binding) =>
+        !listed.has(binding.boardId) && !bindings.has(binding.boardId),
+    );
+    return [...chosen, ...unlisted];
+  };
+
   const save = async () => {
     setBusy(true);
     setSaveError(null);
-    const boardBindings: BotBoardBinding[] = [...bindings.entries()].map(
-      ([boardId, role]) => ({ boardId, role }),
+    const boardBindings: BotBoardBinding[] = await mergeUnlistedBindings(
+      [...bindings.entries()].map(([boardId, role]) => ({ boardId, role })),
     );
     const patch = {
       name: name.trim() || t("app.bots.untitledBot"),
       avatar: { kind: "emoji" as const, value: emoji },
       color,
       boards: boardBindings,
+      canCreateBoards,
       disabled: !enabled,
     };
     try {
@@ -287,6 +314,22 @@ export const BotDialog = ({
               })}
             </div>
           )}
+        </div>
+
+        <div className="exa-section">
+          <span className="exa-label">{t("app.bots.permissions")}</span>
+          <label className="exa-switch">
+            <input
+              type="checkbox"
+              checked={canCreateBoards}
+              onChange={(event) => setCanCreateBoards(event.target.checked)}
+            />
+            <span className="exa-switch__track" aria-hidden="true">
+              <span className="exa-switch__thumb" />
+            </span>
+            <span>{t("app.bots.canCreateBoards")}</span>
+          </label>
+          <p className="exa-hint">{t("app.bots.canCreateBoardsHint")}</p>
         </div>
 
         <div className="exa-section">

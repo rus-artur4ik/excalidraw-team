@@ -142,7 +142,8 @@ service cloud.firestore {
                        && request.resource.data.boards is list
                        && request.resource.data.keys().hasOnly(
                             ['ownerUid', 'name', 'avatar', 'color', 'boards',
-                             'disabled', 'createdAt', 'updatedAt']);
+                             'canCreateBoards', 'disabled',
+                             'createdAt', 'updatedAt']);
       allow update: if signedIn()
                        && resource.data.ownerUid == request.auth.uid
                        && request.resource.data.ownerUid == request.auth.uid
@@ -151,7 +152,8 @@ service cloud.firestore {
                        && request.resource.data.boards is list
                        && request.resource.data.diff(resource.data).affectedKeys()
                             .hasOnly(['name', 'avatar', 'color', 'boards',
-                                      'disabled', 'updatedAt']);
+                                      'canCreateBoards', 'disabled',
+                                      'updatedAt']);
       allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
     }
 

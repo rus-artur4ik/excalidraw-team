@@ -79,6 +79,11 @@ const BotCard = ({
                 { count: bot.boards.length },
               )}
             </span>
+            {bot.canCreateBoards && (
+              <span className="exa-badge">
+                {t("app.bots.canCreateBoardsBadge")}
+              </span>
+            )}
             {tokenCount !== undefined && (
               <span className="exa-badge">
                 {t(
