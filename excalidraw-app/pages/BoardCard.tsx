@@ -1,10 +1,12 @@
 import {
   LinkIcon,
+  LoadIcon,
   LockedIcon,
   settingsIcon,
   usersIcon,
 } from "@excalidraw/excalidraw/components/icons";
 
+import clsx from "clsx";
 import { useEffect, useState } from "react";
 
 import { useAppT } from "../components/useAppT";
@@ -12,10 +14,13 @@ import { useAppT } from "../components/useAppT";
 import { loadBoardThumbnail } from "../data/boardThumbnail";
 import { navigate } from "../router";
 
+import { FolderPickMenu } from "./FolderPickMenu";
+import { BOARD_DRAG_TYPE } from "./folderView";
 import { botPolicyLabelKey } from "./boardOptions";
 
 import type { Board } from "../data/boards";
-import type { MouseEvent, ReactNode } from "react";
+import type { Folder } from "../data/folders";
+import type { DragEvent, MouseEvent, ReactNode } from "react";
 
 const visibilityBadge = (
   board: Board,
@@ -40,15 +45,31 @@ export const BoardCard = ({
   canManage,
   onSettings,
   roomKey,
+  folders,
+  folder,
+  showFolder,
+  onMoveToFolder,
+  onNewFolder,
+  onDragStateChange,
 }: {
   board: Board;
   canManage: boolean;
   onSettings: () => void;
   roomKey: string | null;
+  folders: Folder[];
+  /** The folder this board is filed in, if any. */
+  folder: Folder | null;
+  /** Show the folder badge (hidden when the page is already inside it). */
+  showFolder: boolean;
+  onMoveToFolder: (folderId: string | null) => void;
+  onNewFolder: () => void;
+  onDragStateChange: (dragging: boolean) => void;
 }) => {
   const t = useAppT();
   const [thumb, setThumb] = useState<string | null>(null);
   const [loadingThumb, setLoadingThumb] = useState(!!roomKey);
+  const [dragging, setDragging] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!roomKey) {
@@ -90,8 +111,33 @@ export const BoardCard = ({
   };
   const vis = visibilityBadge(board);
 
+  const onDragStart = (event: DragEvent) => {
+    event.dataTransfer.setData(BOARD_DRAG_TYPE, board.roomId);
+    // Also expose the link so dropping outside the app still does something sane.
+    event.dataTransfer.setData(
+      "text/plain",
+      `${window.location.origin}${href}`,
+    );
+    event.dataTransfer.effectAllowed = "copyMove";
+    setDragging(true);
+    onDragStateChange(true);
+  };
+  const onDragEnd = () => {
+    setDragging(false);
+    onDragStateChange(false);
+  };
+
   return (
-    <li className={board.archived ? "exa-card exa-card--archived" : "exa-card"}>
+    <li
+      className={clsx("exa-card", {
+        "exa-card--archived": board.archived,
+        "exa-card--dragging": dragging,
+        "exa-card--menu-open": menuOpen,
+      })}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
       <a
         className="exa-card__open"
         href={href}
@@ -125,6 +171,19 @@ export const BoardCard = ({
               {t("app.card.archivedBadge")}
             </span>
           )}
+          {showFolder && folder && (
+            <span
+              className="exa-badge exa-badge--folder"
+              title={t("app.folders.inFolder", {
+                name: folder.name || t("app.folders.untitled"),
+              })}
+            >
+              {LoadIcon}
+              <span className="exa-badge__text">
+                {folder.name || t("app.folders.untitled")}
+              </span>
+            </span>
+          )}
           <span className="exa-badge">
             {vis.icon}
             {t(vis.labelKey)}
@@ -134,17 +193,26 @@ export const BoardCard = ({
               policy: t(botPolicyLabelKey(board.botPolicy)),
             })}
           </span>
-          {canManage && (
-            <button
-              type="button"
-              className="exa-icon-btn exa-card__settings"
-              onClick={onSettings}
-              aria-label={t("app.card.settings")}
-              title={t("app.card.settings")}
-            >
-              {settingsIcon}
-            </button>
-          )}
+          <div className="exa-card__actions">
+            <FolderPickMenu
+              folders={folders}
+              currentId={folder?.id ?? null}
+              onPick={onMoveToFolder}
+              onNewFolder={onNewFolder}
+              onOpenChange={setMenuOpen}
+            />
+            {canManage && (
+              <button
+                type="button"
+                className="exa-icon-btn exa-card__settings"
+                onClick={onSettings}
+                aria-label={t("app.card.settings")}
+                title={t("app.card.settings")}
+              >
+                {settingsIcon}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </li>
