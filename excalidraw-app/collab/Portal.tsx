@@ -57,6 +57,10 @@ class Portal {
     this.socket.on("room-user-change", (clients: SocketId[]) => {
       this.collab.setCollaborators(clients);
     });
+    // navigator.onLine alone is unreliable (VPNs, virtual interfaces), so the
+    // offline warning also tracks the live socket connection.
+    this.socket.on("connect", this.collab.onOfflineStatusToggle);
+    this.socket.on("disconnect", this.collab.onOfflineStatusToggle);
 
     return socket;
   }
@@ -72,6 +76,7 @@ class Portal {
     this.roomKey = null;
     this.socketInitialized = false;
     this.broadcastedElementVersions = new Map();
+    this.collab.onOfflineStatusToggle();
   }
 
   isOpen() {

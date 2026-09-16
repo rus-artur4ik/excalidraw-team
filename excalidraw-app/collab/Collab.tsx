@@ -309,7 +309,12 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   }
 
   onOfflineStatusToggle = () => {
-    appJotaiStore.set(isOfflineAtom, !window.navigator.onLine);
+    // Browsers can report `onLine === false` while the network works fine, so
+    // only warn when the collab socket isn't connected either.
+    appJotaiStore.set(
+      isOfflineAtom,
+      !window.navigator.onLine && !this.portal.socket?.connected,
+    );
   };
 
   componentWillUnmount() {
