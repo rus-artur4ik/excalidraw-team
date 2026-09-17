@@ -172,9 +172,10 @@ describe("BotDialog — permissions", () => {
         onDeleted={vi.fn()}
       />,
     );
-    // Checkbox order: one per board, then "create boards", then enabled.
+    // Checkbox order: one per board, then "create boards", its "create
+    // folders" sub-permission, then enabled.
     const checkboxes = screen.getAllByRole("checkbox");
-    fireEvent.click(checkboxes[checkboxes.length - 2]);
+    fireEvent.click(checkboxes[checkboxes.length - 3]);
     fireEvent.click(screen.getByRole("button", { name: "app.common.save" }));
 
     await waitFor(() => expect(data.createBot).toHaveBeenCalled());
@@ -210,7 +211,7 @@ describe("BotDialog — permissions", () => {
     );
 
     const checkboxes = screen.getAllByRole("checkbox");
-    const permission = checkboxes[checkboxes.length - 2] as HTMLInputElement;
+    const permission = checkboxes[checkboxes.length - 3] as HTMLInputElement;
     expect(permission.checked).toBe(true);
     fireEvent.click(permission);
     fireEvent.click(screen.getByRole("button", { name: "app.common.save" }));
@@ -221,6 +222,120 @@ describe("BotDialog — permissions", () => {
       expect.objectContaining({ canCreateBoards: false, disabled: false }),
     );
     expect(data.stopBot).not.toHaveBeenCalled();
+  });
+});
+
+describe("BotDialog — create folders sub-permission", () => {
+  const renderNew = () =>
+    render(
+      <BotDialog
+        bot={null}
+        boards={boards}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />,
+    );
+
+  const permissionBoxes = () => {
+    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    return {
+      createBoards: checkboxes[checkboxes.length - 3],
+      createFolders: checkboxes[checkboxes.length - 2],
+    };
+  };
+
+  it("is disabled until 'create boards' is on", () => {
+    renderNew();
+    expect(permissionBoxes().createFolders.disabled).toBe(true);
+    fireEvent.click(permissionBoxes().createBoards);
+    expect(permissionBoxes().createFolders.disabled).toBe(false);
+    expect(permissionBoxes().createFolders.checked).toBe(false);
+  });
+
+  it("saves the sub-permission when both are on", async () => {
+    data.createBot.mockResolvedValue({ id: "new" });
+    renderNew();
+    fireEvent.click(permissionBoxes().createBoards);
+    fireEvent.click(permissionBoxes().createFolders);
+    fireEvent.click(screen.getByRole("button", { name: "app.common.save" }));
+    await waitFor(() => expect(data.createBot).toHaveBeenCalled());
+    expect(data.createBot.mock.calls[0][0]).toMatchObject({
+      canCreateBoards: true,
+      canCreateFolders: true,
+    });
+  });
+
+  it("drops the sub-permission when the parent is turned off", async () => {
+    data.updateBot.mockResolvedValue(undefined);
+    const bot = {
+      id: "bot1",
+      ownerUid: "u",
+      name: "Helper",
+      avatar: { kind: "emoji", value: "🤖" },
+      color: "#6965db",
+      boards: [],
+      canCreateBoards: true,
+      canCreateFolders: true,
+      disabled: false,
+      createdAt: 1,
+      updatedAt: 1,
+    } as any;
+    const onSaved = vi.fn();
+    render(
+      <BotDialog
+        bot={bot}
+        boards={boards}
+        onClose={vi.fn()}
+        onSaved={onSaved}
+        onDeleted={vi.fn()}
+      />,
+    );
+    expect(permissionBoxes().createFolders.checked).toBe(true);
+    fireEvent.click(permissionBoxes().createBoards);
+    expect(permissionBoxes().createFolders.checked).toBe(false);
+    expect(permissionBoxes().createFolders.disabled).toBe(true);
+    // Turning the parent back on must not silently restore the old grant.
+    fireEvent.click(permissionBoxes().createBoards);
+    expect(permissionBoxes().createFolders.checked).toBe(false);
+    fireEvent.click(permissionBoxes().createBoards);
+
+    fireEvent.click(screen.getByRole("button", { name: "app.common.save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(data.updateBot).toHaveBeenCalledWith(
+      "bot1",
+      expect.objectContaining({
+        canCreateBoards: false,
+        canCreateFolders: false,
+      }),
+    );
+  });
+
+  it("ignores a stored sub-permission whose parent is off", () => {
+    render(
+      <BotDialog
+        bot={
+          {
+            id: "bot1",
+            ownerUid: "u",
+            name: "Helper",
+            avatar: { kind: "emoji", value: "🤖" },
+            color: "#6965db",
+            boards: [],
+            canCreateBoards: false,
+            canCreateFolders: true,
+            createdAt: 1,
+            updatedAt: 1,
+          } as any
+        }
+        boards={boards}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />,
+    );
+    expect(permissionBoxes().createFolders.checked).toBe(false);
+    expect(permissionBoxes().createFolders.disabled).toBe(true);
   });
 });
 

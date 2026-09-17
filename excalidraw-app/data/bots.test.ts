@@ -76,6 +76,30 @@ describe("createBot", () => {
     expect(bot).toMatchObject({ id: "generated-id", name: "Helper" });
   });
 
+  it("never stores the folders sub-permission without its parent", async () => {
+    await createBot({
+      name: "Helper",
+      avatar: { kind: "emoji", value: "🤖" },
+      color: "#123456",
+      canCreateFolders: true,
+    });
+    const orphan = mocks.setDoc.mock.calls[0][1] as Record<string, unknown>;
+    expect(orphan).toMatchObject({
+      canCreateBoards: false,
+      canCreateFolders: false,
+    });
+
+    await createBot({
+      name: "Helper",
+      avatar: { kind: "emoji", value: "🤖" },
+      color: "#123456",
+      canCreateBoards: true,
+      canCreateFolders: true,
+    });
+    const granted = mocks.setDoc.mock.calls[1][1] as Record<string, unknown>;
+    expect(granted.canCreateFolders).toBe(true);
+  });
+
   it("persists the board-creation permission when granted", async () => {
     await createBot({
       name: "Helper",

@@ -75,6 +75,8 @@ export const BotDialog = ({
       emoji: bot?.avatar?.value ?? BOT_EMOJIS[0],
       color: bot?.color ?? BOT_COLORS[0],
       canCreateBoards: bot?.canCreateBoards === true,
+      canCreateFolders:
+        bot?.canCreateBoards === true && bot?.canCreateFolders === true,
       enabled: !bot?.disabled,
       bindingsKey: bindingsKey(bindingsFromBot(bot)),
     }),
@@ -86,6 +88,9 @@ export const BotDialog = ({
   const [color, setColor] = useState<string>(baseline.color);
   const [canCreateBoards, setCanCreateBoards] = useState(
     baseline.canCreateBoards,
+  );
+  const [canCreateFolders, setCanCreateFolders] = useState(
+    baseline.canCreateFolders,
   );
   const [enabled, setEnabled] = useState(baseline.enabled);
   const [bindings, setBindings] = useState<Map<string, BindingRole>>(
@@ -114,6 +119,7 @@ export const BotDialog = ({
     emoji !== baseline.emoji ||
     color !== baseline.color ||
     canCreateBoards !== baseline.canCreateBoards ||
+    canCreateFolders !== baseline.canCreateFolders ||
     enabled !== baseline.enabled ||
     bindingsKey(bindings) !== baseline.bindingsKey;
 
@@ -175,6 +181,7 @@ export const BotDialog = ({
       color,
       boards: boardBindings,
       canCreateBoards,
+      canCreateFolders: canCreateBoards && canCreateFolders,
       disabled: !enabled,
     };
     try {
@@ -322,7 +329,13 @@ export const BotDialog = ({
             <input
               type="checkbox"
               checked={canCreateBoards}
-              onChange={(event) => setCanCreateBoards(event.target.checked)}
+              onChange={(event) => {
+                setCanCreateBoards(event.target.checked);
+                if (!event.target.checked) {
+                  // The sub-permission cannot outlive its parent.
+                  setCanCreateFolders(false);
+                }
+              }}
             />
             <span className="exa-switch__track" aria-hidden="true">
               <span className="exa-switch__thumb" />
@@ -330,6 +343,33 @@ export const BotDialog = ({
             <span>{t("app.bots.canCreateBoards")}</span>
           </label>
           <p className="exa-hint">{t("app.bots.canCreateBoardsHint")}</p>
+          <div className="exa-subpermission">
+            <label
+              className="exa-switch"
+              aria-disabled={!canCreateBoards}
+              title={
+                canCreateBoards
+                  ? undefined
+                  : t("app.bots.canCreateFoldersNeedsBoards")
+              }
+            >
+              <input
+                type="checkbox"
+                checked={canCreateBoards && canCreateFolders}
+                disabled={!canCreateBoards}
+                onChange={(event) => setCanCreateFolders(event.target.checked)}
+              />
+              <span className="exa-switch__track" aria-hidden="true">
+                <span className="exa-switch__thumb" />
+              </span>
+              <span>{t("app.bots.canCreateFolders")}</span>
+            </label>
+            <p className="exa-hint">
+              {canCreateBoards
+                ? t("app.bots.canCreateFoldersHint")
+                : t("app.bots.canCreateFoldersNeedsBoards")}
+            </p>
+          </div>
         </div>
 
         <div className="exa-section">

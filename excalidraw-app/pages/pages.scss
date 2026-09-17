@@ -1202,6 +1202,21 @@
     white-space: nowrap;
   }
 
+  // A permission that only exists under another one: indented to the parent's
+  // label and greyed out while the parent is off.
+  .exa-subpermission {
+    margin: 0.625rem 0 0 2.75rem;
+
+    .exa-hint {
+      margin-left: 0;
+    }
+  }
+
+  .exa-switch[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .exa-switch {
     display: inline-flex;
     align-items: center;

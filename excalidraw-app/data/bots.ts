@@ -25,6 +25,11 @@ export type Bot = {
   boards: BotBoardBinding[];
   /** Lets the bot create new boards over MCP. Absent = off. */
   canCreateBoards?: boolean;
+  /**
+   * Sub-permission of `canCreateBoards`: lets the bot create folders and file
+   * the boards it creates into them. Only counts while the parent is on.
+   */
+  canCreateFolders?: boolean;
   disabled?: boolean;
   createdAt: number;
   updatedAt: number;
@@ -36,13 +41,20 @@ export type CreateBotInput = {
   color: string;
   boards?: BotBoardBinding[];
   canCreateBoards?: boolean;
+  canCreateFolders?: boolean;
   disabled?: boolean;
 };
 
 export type BotPatch = Partial<
   Pick<
     Bot,
-    "name" | "avatar" | "color" | "boards" | "canCreateBoards" | "disabled"
+    | "name"
+    | "avatar"
+    | "color"
+    | "boards"
+    | "canCreateBoards"
+    | "canCreateFolders"
+    | "disabled"
   >
 >;
 
@@ -81,6 +93,9 @@ export const createBot = async (input: CreateBotInput): Promise<Bot> => {
     color: input.color,
     boards: input.boards ?? [],
     canCreateBoards: input.canCreateBoards ?? false,
+    // A sub-permission never outlives its parent.
+    canCreateFolders:
+      (input.canCreateBoards ?? false) && (input.canCreateFolders ?? false),
     disabled: input.disabled ?? false,
     createdAt: now,
     updatedAt: now,
