@@ -831,6 +831,11 @@
       "read": "Read only",
       "write": "Read and write"
     },
+    "boardDescription": {
+      "label": "Description",
+      "placeholder": "What is this board about?",
+      "hint": "Shown under the name in the board list."
+    },
     "create": {
       "title": "New board",
       "name": "Name",

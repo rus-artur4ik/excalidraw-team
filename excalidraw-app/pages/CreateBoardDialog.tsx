@@ -12,6 +12,7 @@ import { DEFAULT_BOT_POLICY, createBoard } from "../data/boards";
 import { listMyBots, updateBot } from "../data/bots";
 import { navigate } from "../router";
 
+import { BoardDescriptionField } from "./BoardDescriptionField";
 import { BOT_POLICY_OPTIONS, VISIBILITY_OPTIONS } from "./boardOptions";
 
 import type { BotPolicy, Visibility } from "../data/boards";
@@ -29,6 +30,7 @@ export const CreateBoardDialog = ({
   const t = useAppT();
   const { user } = useAuth();
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("private");
   const [botPolicy, setBotPolicy] = useState<BotPolicy>(DEFAULT_BOT_POLICY);
   const [bots, setBots] = useState<Bot[]>([]);
@@ -121,6 +123,7 @@ export const CreateBoardDialog = ({
       try {
         const { roomId } = await createBoard({
           title: title.trim() || t("app.common.untitled"),
+          description,
           visibility,
           botPolicy,
         });
@@ -163,6 +166,18 @@ export const CreateBoardDialog = ({
           onChange={setTitle}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
+              void create();
+            }
+          }}
+        />
+      </div>
+
+      <div className="exa-section">
+        <BoardDescriptionField
+          value={description}
+          onChange={setDescription}
+          onEnter={() => {
+            if (!busy) {
               void create();
             }
           }}

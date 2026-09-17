@@ -39,6 +39,8 @@ export type Board = {
   ownerUid: string;
   ownerEmail: string | null;
   title: string;
+  /** Short blurb shown under the title in the board list; absent when unset. */
+  description?: string;
   visibility?: Visibility;
   editors: string[];
   viewers: string[];
@@ -57,8 +59,21 @@ export type Team = {
   viewerEmails: string[];
 };
 
+// Mirrored by firestore.rules and the MCP backend's create_board /
+// set_board_description — keep all three in step.
+export const BOARD_DESCRIPTION_MAX_LENGTH = 300;
+
+/** One short paragraph: whitespace (including newlines) collapses, runaway text is cut. */
+export const cleanBoardDescription = (raw: string | undefined): string =>
+  (raw ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, BOARD_DESCRIPTION_MAX_LENGTH)
+    .trim();
+
 export type CreateBoardInput = {
   title: string;
+  description?: string;
   visibility?: Visibility;
   editors?: string[];
   viewers?: string[];
@@ -74,11 +89,13 @@ export const createBoard = async (
   }
   const { roomId, roomKey } = await generateCollaborationLinkData();
   const db = getFirestoreInstance();
+  const description = cleanBoardDescription(input.description);
 
   const board = {
     ownerUid: user.uid,
     ownerEmail: user.email,
     title: input.title,
+    ...(description ? { description } : {}),
     visibility: input.visibility ?? "private",
     editors: input.editors ?? [],
     viewers: input.viewers ?? [],
@@ -136,12 +153,25 @@ export const loadBoardKeys = async (
 export const updateBoardAccess = async (
   roomId: string,
   patch: Partial<
-    Pick<Board, "visibility" | "editors" | "viewers" | "title" | "botPolicy">
+    Pick<
+      Board,
+      | "visibility"
+      | "editors"
+      | "viewers"
+      | "title"
+      | "description"
+      | "botPolicy"
+    >
   >,
 ) => {
   const db = getFirestoreInstance();
+  const { description, ...rest } = patch;
+  const cleaned =
+    description === undefined ? undefined : cleanBoardDescription(description);
   await updateDoc(doc(db, "boards", roomId), {
-    ...patch,
+    ...rest,
+    // An emptied description is removed, not stored as "".
+    ...(cleaned === undefined ? {} : { description: cleaned || deleteField() }),
     updatedAt: serverTimestamp(),
   });
 };

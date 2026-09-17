@@ -11,12 +11,14 @@ import { AppConfirm } from "../components/AppConfirm";
 import { AppDialog } from "../components/AppDialog";
 import {
   archiveBoard,
+  cleanBoardDescription,
   deleteBoardForever,
   DEFAULT_BOT_POLICY,
   unarchiveBoard,
   updateBoardAccess,
 } from "../data/boards";
 
+import { BoardDescriptionField } from "./BoardDescriptionField";
 import { BOT_POLICY_OPTIONS, VISIBILITY_OPTIONS } from "./boardOptions";
 
 import type { Board, BotPolicy, Visibility } from "../data/boards";
@@ -78,6 +80,7 @@ export const BoardSettingsDialog = ({
   const baseline = useMemo(
     () => ({
       title: board.title ?? "",
+      description: board.description ?? "",
       visibility: initialVisibility(board),
       botPolicy: board.botPolicy ?? DEFAULT_BOT_POLICY,
       peopleKey: peopleKey(initialPeople(board)),
@@ -86,6 +89,7 @@ export const BoardSettingsDialog = ({
   );
 
   const [title, setTitle] = useState(baseline.title);
+  const [description, setDescription] = useState(baseline.description);
   const [visibility, setVisibility] = useState<Visibility>(baseline.visibility);
   const [people, setPeople] = useState<Person[]>(initialPeople(board));
   const [botPolicy, setBotPolicy] = useState<BotPolicy>(baseline.botPolicy);
@@ -103,6 +107,8 @@ export const BoardSettingsDialog = ({
 
   const dirty =
     title.trim() !== baseline.title.trim() ||
+    cleanBoardDescription(description) !==
+      cleanBoardDescription(baseline.description) ||
     visibility !== baseline.visibility ||
     botPolicy !== baseline.botPolicy ||
     peopleKey(people) !== baseline.peopleKey;
@@ -156,6 +162,7 @@ export const BoardSettingsDialog = ({
     setBusy(true);
     setSaveError(null);
     const cleanTitle = title.trim() || t("app.common.untitled");
+    const cleanDescription = cleanBoardDescription(description);
     const editors = people
       .filter((p) => p.role === "editor")
       .map((p) => p.email);
@@ -165,6 +172,7 @@ export const BoardSettingsDialog = ({
     try {
       await updateBoardAccess(board.roomId, {
         title: cleanTitle,
+        description: cleanDescription,
         visibility,
         botPolicy,
         editors,
@@ -173,6 +181,7 @@ export const BoardSettingsDialog = ({
       onSaved({
         ...board,
         title: cleanTitle,
+        description: cleanDescription || undefined,
         visibility,
         botPolicy,
         editors,
@@ -244,6 +253,13 @@ export const BoardSettingsDialog = ({
             value={title}
             placeholder={t("app.common.untitled")}
             onChange={setTitle}
+          />
+        </div>
+
+        <div className="exa-section">
+          <BoardDescriptionField
+            value={description}
+            onChange={setDescription}
           />
         </div>
 

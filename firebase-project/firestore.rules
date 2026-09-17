@@ -61,6 +61,13 @@ service cloud.firestore {
         || (legacyTeam(b) && 'writePolicy' in b && b.writePolicy != 'owner' && teamEditor());
     }
 
+    // Optional one-paragraph blurb for the board list; an emptied one is
+    // removed rather than stored. The length matches the app and MCP backend.
+    function validDescription(b) {
+      return !('description' in b)
+        || (b.description is string && b.description.size() <= 300);
+    }
+
     function canRead(b) { return hasVis(b) ? newCanRead(b) : legacyCanRead(b); }
     function canWrite(b) { return hasVis(b) ? newCanWrite(b) : legacyCanWrite(b); }
     function boardTeamAdmin(b) {
@@ -75,15 +82,17 @@ service cloud.firestore {
                        && request.resource.data.visibility in ['private', 'team', 'link']
                        && request.resource.data.editors is list
                        && request.resource.data.viewers is list
+                       && validDescription(request.resource.data)
                        && request.resource.data.keys().hasOnly(
-                            ['ownerUid', 'ownerEmail', 'title', 'visibility',
-                             'editors', 'viewers', 'botPolicy',
+                            ['ownerUid', 'ownerEmail', 'title', 'description',
+                             'visibility', 'editors', 'viewers', 'botPolicy',
                              'createdAt', 'updatedAt']);
       allow update: if (isOwner(resource.data) || boardTeamAdmin(resource.data))
+                       && validDescription(request.resource.data)
                        && request.resource.data.diff(resource.data).affectedKeys()
                             .hasOnly(['visibility', 'editors', 'viewers',
-                                      'botPolicy', 'title', 'updatedAt',
-                                      'archived', 'archivedAt']);
+                                      'botPolicy', 'title', 'description',
+                                      'updatedAt', 'archived', 'archivedAt']);
       allow delete: if isOwner(resource.data) || boardTeamAdmin(resource.data);
       allow list: if signedIn() &&
         (resource.data.ownerUid == request.auth.uid

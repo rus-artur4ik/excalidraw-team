@@ -165,6 +165,11 @@ export const BoardCard = ({
         >
           {title}
         </a>
+        {board.description && (
+          <p className="exa-card__description" title={board.description}>
+            {board.description}
+          </p>
+        )}
         <div className="exa-card__badges">
           {board.archived && (
             <span className="exa-badge exa-badge--archived">
