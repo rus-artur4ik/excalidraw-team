@@ -11,6 +11,9 @@ import { useResolvedTheme } from "./useResolvedTheme";
 
 import type { CSSProperties, ReactNode } from "react";
 
+const TEXT_FIELD_SELECTOR =
+  'input:not([type]), input[type="text"], input[type="search"], input[type="email"], textarea';
+
 const SIZE_PX: Record<string, number> = {
   small: 460,
   regular: 640,
@@ -74,7 +77,15 @@ export const AppDialog = ({
     }
     const focusables = queryFocusableElements(island);
     const timer = window.setTimeout(() => {
-      (focusables[1] || focusables[0])?.focus();
+      // Start in the dialog's first text field when it has one. A field's own
+      // focus-on-mount (TextField selectOnRender) runs before this portal is
+      // attached to the document, so it cannot be relied on.
+      const field = focusables.find(
+        (element) =>
+          element.matches(TEXT_FIELD_SELECTOR) &&
+          !(element as HTMLInputElement).readOnly,
+      );
+      (field || focusables[1] || focusables[0])?.focus();
     });
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== KEYS.TAB) {
