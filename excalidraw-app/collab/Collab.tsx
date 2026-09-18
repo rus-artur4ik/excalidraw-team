@@ -54,7 +54,6 @@ import type { Mutable, ValueOf } from "@excalidraw/common/utility-types";
 
 import { appJotaiStore, atom } from "../app-jotai";
 import {
-  COLLAB_INITIAL_LOAD_MAX_MS,
   CURSOR_SYNC_TIMEOUT,
   FILE_UPLOAD_MAX_BYTES,
   FIREBASE_STORAGE_PREFIXES,
@@ -112,20 +111,6 @@ export const collabAPIAtom = atom<CollabAPI | null>(null);
 export const isCollaboratingAtom = atom(false);
 export const isOfflineAtom = atom(false);
 
-export type CollabSceneLoad = {
-  active: boolean;
-  phase: "scene" | "images";
-  loaded: number;
-  total: number;
-};
-
-export const collabSceneLoadAtom = atom<CollabSceneLoad>({
-  active: false,
-  phase: "scene",
-  loaded: 0,
-  total: 0,
-});
-
 interface CollabState {
   errorMessage: string | null;
   /** errors related to saving */
@@ -169,11 +154,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   activeIntervalId: number | null;
   idleTimeoutId: number | null;
 
-  private initialLoadPending = false;
-  private initialImageProgress:
-    | ((settled: number, total: number) => void)
-    | null = null;
-  private initialLoadSafetyTimer?: number;
   private lastBroadcastedOrReceivedSceneVersion: number = -1;
   private collaborators = new Map<SocketId, Collaborator>();
   private sceneHistorySessionId = createSceneHistoryId();
@@ -195,7 +175,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
     this.portal = new Portal(this);
     this.fileManager = new FileManager({
       onFileStatusChange: FileStatusStore.updateStatuses.bind(FileStatusStore),
-      getFiles: async (fileIds) => {
+      getFiles: async (fileIds, onProgress) => {
         const { roomId, roomKey } = this.portal;
         if (!roomId || !roomKey) {
           throw new AbortError();
@@ -205,7 +185,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
           `files/rooms/${roomId}`,
           roomKey,
           fileIds,
-          this.initialImageProgress ?? undefined,
+          onProgress,
         );
       },
       saveFiles: async ({ addedFiles }) => {
@@ -342,30 +322,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
   private setIsCollaborating = (isCollaborating: boolean) => {
     appJotaiStore.set(isCollaboratingAtom, isCollaborating);
-  };
-
-  private setSceneLoad = (load: CollabSceneLoad) => {
-    appJotaiStore.set(collabSceneLoadAtom, load);
-  };
-
-  private beginInitialLoad = () => {
-    this.initialLoadPending = true;
-    this.setSceneLoad({ active: true, phase: "scene", loaded: 0, total: 0 });
-    window.clearTimeout(this.initialLoadSafetyTimer);
-    this.initialLoadSafetyTimer = window.setTimeout(
-      this.finishInitialLoad,
-      COLLAB_INITIAL_LOAD_MAX_MS,
-    );
-  };
-
-  private finishInitialLoad = () => {
-    if (!this.initialLoadPending) {
-      return;
-    }
-    this.initialLoadPending = false;
-    this.initialImageProgress = null;
-    window.clearTimeout(this.initialLoadSafetyTimer);
-    this.setSceneLoad({ active: false, phase: "scene", loaded: 0, total: 0 });
   };
 
   private onUnload = () => {
@@ -539,7 +495,6 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
   private destroySocketClient = (opts?: { isUnload: boolean }) => {
     this.lastBroadcastedOrReceivedSceneVersion = -1;
-    this.finishInitialLoad();
     this.portal.close();
     this.fileManager.reset();
     if (!opts?.isUnload) {
@@ -563,47 +518,35 @@ class Collab extends PureComponent<CollabProps, CollabState> {
      * reason their status was not updated correctly.
      */
     forceFetchFiles?: boolean;
+    /** settled / total count of the files this call fetches */
+    onProgress?: (settled: number, total: number) => void;
   }) => {
-    const unfetchedImages = opts.elements
-      .filter((element) => {
-        return (
-          isInitializedImageElement(element) &&
-          !this.fileManager.isFileTracked(element.fileId) &&
-          !element.isDeleted &&
-          (opts.forceFetchFiles
-            ? element.status !== "pending" ||
-              Date.now() - element.updated > 10000
-            : element.status === "saved")
-        );
-      })
-      .map((element) => (element as InitializedExcalidrawImageElement).fileId);
+    const unfetchedImages = [
+      ...new Set(
+        opts.elements
+          .filter((element) => {
+            return (
+              isInitializedImageElement(element) &&
+              !this.fileManager.isFileTracked(element.fileId) &&
+              !element.isDeleted &&
+              (opts.forceFetchFiles
+                ? element.status !== "pending" ||
+                  Date.now() - element.updated > 10000
+                : element.status === "saved")
+            );
+          })
+          .map(
+            (element) => (element as InitializedExcalidrawImageElement).fileId,
+          ),
+      ),
+    ];
 
-    if (this.initialLoadPending) {
-      if (unfetchedImages.length === 0) {
-        this.finishInitialLoad();
-      } else {
-        this.setSceneLoad({
-          active: true,
-          phase: "images",
-          loaded: 0,
-          total: unfetchedImages.length,
-        });
-        this.initialImageProgress = (settled, total) =>
-          this.setSceneLoad({
-            active: true,
-            phase: "images",
-            loaded: settled,
-            total,
-          });
-      }
-    }
-
+    opts.onProgress?.(0, unfetchedImages.length);
     try {
-      return await this.fileManager.getFiles(unfetchedImages);
+      return await this.fileManager.getFiles(unfetchedImages, opts.onProgress);
     } finally {
-      if (this.initialLoadPending && unfetchedImages.length > 0) {
-        this.finishInitialLoad();
-      }
+      // settle the count even if the fetch bailed out part-way
+      opts.onProgress?.(unfetchedImages.length, unfetchedImages.length);
     }
   };
 
@@ -632,6 +575,10 @@ class Collab extends PureComponent<CollabProps, CollabState> {
 
   startCollaboration = async (
     existingRoomLinkData: null | { roomId: string; roomKey: string },
+    opts?: {
+      /** encrypted size of the stored scene, once it's downloaded */
+      onSceneDownloaded?: (bytes: number) => void;
+    },
   ) => {
     const appUser = getCurrentAppUser();
     if (appUser?.displayName || appUser?.email) {
@@ -710,10 +657,10 @@ class Collab extends PureComponent<CollabProps, CollabState> {
     if (existingRoomLinkData) {
       // load Firebase immediately rather than block on a peer SCENE_INIT; peer
       // INIT/UPDATE frames still reconcile by element version on top
-      this.beginInitialLoad();
       this.initializeRoom({
         roomLinkData: existingRoomLinkData,
         fetchScene: true,
+        onSceneDownloaded: opts?.onSceneDownloaded,
       }).then((scene) => {
         scenePromise.resolve(scene);
       });
@@ -888,12 +835,18 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   private initializeRoom = async ({
     fetchScene,
     roomLinkData,
+    onSceneDownloaded,
   }:
     | {
         fetchScene: true;
         roomLinkData: { roomId: string; roomKey: string } | null;
+        onSceneDownloaded?: (bytes: number) => void;
       }
-    | { fetchScene: false; roomLinkData?: null }) => {
+    | {
+        fetchScene: false;
+        roomLinkData?: null;
+        onSceneDownloaded?: never;
+      }) => {
     if (this.portal.socket && this.fallbackInitializationHandler) {
       this.portal.socket.off(
         "connect_error",
@@ -914,6 +867,7 @@ class Collab extends PureComponent<CollabProps, CollabState> {
           roomLinkData.roomId,
           roomLinkData.roomKey,
           this.portal.socket,
+          onSceneDownloaded,
         );
         if (elements) {
           this.setLastBroadcastedOrReceivedSceneVersion(

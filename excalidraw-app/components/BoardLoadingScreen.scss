@@ -1,0 +1,255 @@
+// Above the editor UI and the editor's own loading message (z-index 999, which
+// this follows in the DOM), below modals (1000) so an error raised while the
+// board loads stays visible.
+.excalidraw.board-loader {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  padding: 1rem;
+  box-sizing: border-box;
+  // the canvas colour, so lifting the screen reveals the board without a flash
+  background-color: var(--default-bg-color);
+  // opacity: keep in sync with LEAVE_MS in BoardLoadingScreen.tsx
+  transition: background-color 400ms ease, opacity 220ms ease;
+
+  @supports (backdrop-filter: blur(1px)) {
+    backdrop-filter: blur(0);
+    transition: background-color 400ms ease, backdrop-filter 400ms ease,
+      opacity 220ms ease;
+  }
+
+  // the scene is painted and only images are left: let the board show through
+  &.board-loader--revealed {
+    background-color: rgba(255, 255, 255, 0.7);
+
+    @supports (backdrop-filter: blur(1px)) {
+      backdrop-filter: blur(3px);
+    }
+  }
+
+  &.theme--dark.board-loader--revealed {
+    background-color: rgba(18, 18, 18, 0.7);
+  }
+
+  &.board-loader--leaving {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .board-loader__card {
+    width: 100%;
+    max-width: 21rem;
+    padding: 1.25rem 1.25rem 1rem;
+    box-sizing: border-box;
+    border: 1px solid var(--default-border-color);
+    border-radius: 0.75rem;
+    background: var(--island-bg-color);
+    box-shadow: var(--shadow-island);
+    color: var(--color-on-surface);
+    // fast loads finish before the card ever shows up
+    animation: board-loader-card-in 200ms ease-out 120ms both;
+  }
+
+  .board-loader__eyebrow {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-muted-color);
+  }
+
+  .board-loader__title {
+    // reserved, so the card doesn't grow when the title arrives
+    min-height: 1.5rem;
+    margin-top: 0.125rem;
+    font-size: 1.0625rem;
+    font-weight: 700;
+    line-height: 1.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .board-loader__title--known {
+    animation: board-loader-fade-in 200ms ease-out both;
+  }
+
+  .board-loader__steps {
+    display: grid;
+    gap: 0.5rem;
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .board-loader__step {
+    display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 0.625rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    transition: color 150ms ease;
+  }
+
+  .board-loader__step--pending {
+    color: var(--text-muted-color);
+  }
+
+  .board-loader__step--active .board-loader__label {
+    font-weight: 600;
+  }
+
+  .board-loader__label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .board-loader__detail {
+    font-size: 0.8125rem;
+    color: var(--text-muted-color);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .board-loader__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    box-sizing: border-box;
+    border-radius: 50%;
+
+    svg {
+      width: 100%;
+      height: 100%;
+    }
+  }
+
+  .board-loader__step--pending .board-loader__icon {
+    border: 1.5px solid var(--color-border-outline-variant);
+  }
+
+  .board-loader__step--active .board-loader__icon {
+    border: 2px solid var(--color-primary-light);
+    border-top-color: var(--color-primary);
+    animation: board-loader-spin 800ms linear infinite;
+  }
+
+  .board-loader__step--done .board-loader__icon {
+    background: var(--color-primary);
+    color: var(--color-surface-lowest);
+    animation: board-loader-pop 180ms ease-out;
+  }
+
+  .board-loader__bar {
+    position: relative;
+    height: 0.25rem;
+    margin-top: 1.125rem;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--color-surface-low);
+  }
+
+  // the dark surface-low is the card's own colour
+  &.theme--dark .board-loader__bar {
+    background: var(--color-surface-high);
+  }
+
+  // transform, not width: the bar keeps moving while the main thread is busy
+  // building a large scene
+  .board-loader__bar-fill {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    background: var(--color-primary);
+    transform-origin: left center;
+    transition-property: transform;
+    transition-timing-function: cubic-bezier(0.2, 0.6, 0.35, 1);
+    will-change: transform;
+  }
+
+  .board-loader__skip {
+    display: block;
+    margin: 0.75rem auto 0;
+    padding: 0.25rem 0.5rem;
+    border: 0;
+    border-radius: var(--border-radius-md);
+    background: none;
+    color: var(--color-primary);
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    animation: board-loader-fade-in 200ms ease-out both;
+
+    &:hover {
+      background: var(--button-hover-bg);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 1px;
+    }
+  }
+}
+
+html[dir="rtl"] .excalidraw.board-loader .board-loader__bar-fill {
+  transform-origin: right center;
+}
+
+@keyframes board-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes board-loader-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+}
+
+@keyframes board-loader-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes board-loader-pop {
+  from {
+    transform: scale(0.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .excalidraw.board-loader,
+  .excalidraw.board-loader * {
+    transition: none !important;
+  }
+
+  .excalidraw.board-loader {
+    .board-loader__card,
+    .board-loader__title--known,
+    .board-loader__skip,
+    .board-loader__step--done .board-loader__icon {
+      animation: none;
+    }
+
+    // the ring is the only sign the current step is still alive; slow it down
+    .board-loader__step--active .board-loader__icon {
+      animation-duration: 1600ms;
+    }
+  }
+}

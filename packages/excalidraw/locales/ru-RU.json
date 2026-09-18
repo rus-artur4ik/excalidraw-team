@@ -1,7 +1,5 @@
 {
   "labels": {
-    "loadingScene": "Загрузка доски…",
-    "loadingImages": "Загрузка изображений… {{progress}}%",
     "paste": "Вставить",
     "pasteAsPlaintext": "Вставить как обычный текст",
     "pasteCharts": "Вставить диаграммы",
@@ -791,6 +789,23 @@
       "archivedBanner": "Эта доска в архиве.",
       "restore": "Восстановить",
       "nameTooltip": "Переименовать доску можно в настройках доски"
+    },
+    "boardLoading": {
+      "heading": "Открываем доску",
+      "auth": "Вход в аккаунт",
+      "access": "Проверка доступа",
+      "scene": "Загрузка доски",
+      "render": "Отрисовка",
+      "images": "Изображения",
+      "sizeKb": "{{size}} КБ",
+      "sizeMb": "{{size}} МБ",
+      "elements_one": "{{count}} элемент",
+      "elements_few": "{{count}} элемента",
+      "elements_many": "{{count}} элементов",
+      "elements_other": "{{count}} элемента",
+      "imagesProgress": "{{loaded}} из {{total}}",
+      "noImages": "нет",
+      "skipImages": "Открыть, не дожидаясь изображений"
     },
     "visibility": {
       "privateLabel": "Личная",

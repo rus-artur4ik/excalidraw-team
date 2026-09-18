@@ -100,8 +100,8 @@ import Collab, {
 } from "./collab/Collab";
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
+import { BoardLoadingScreen } from "./components/BoardLoadingScreen";
 import { BoardNameBadge } from "./components/BoardNameBadge";
-import { CollabLoadingOverlay } from "./components/CollabLoadingOverlay";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
 import {
   ExportToExcalidrawPlus,
@@ -141,12 +141,12 @@ import {
   currentBoardAtom,
   sharedSceneRoomAtom,
 } from "./boardSession";
+import { getBoardLoadHandle, waitForScenePaint } from "./boardLoad";
 import { BoardSettingsDialog } from "./pages/BoardSettings";
 import { canWriteBoard, loadBoard, loadTeam, teamRoleOf } from "./data/boards";
 import { AdminPage } from "./pages/AdminPage";
 import { BotsPage } from "./pages/BotsPage";
 import { HomePage } from "./pages/HomePage";
-import { AppShell } from "./components/AppShell";
 import { getBoardRouteId, navigate, usePathname } from "./router";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { getPreferredLanguage } from "./app-language/language-detector";
@@ -166,6 +166,7 @@ import { ExcalidrawPlusPromoBanner } from "./components/ExcalidrawPlusPromoBanne
 import { AppSidebar } from "./components/AppSidebar";
 
 import type { CollabAPI } from "./collab/Collab";
+import type { BoardLoadHandle } from "./boardLoad";
 
 polyfill();
 
@@ -233,6 +234,7 @@ const shareableLinkConfirmDialog = {
 const initializeScene = async (opts: {
   collabAPI: CollabAPI | null;
   excalidrawAPI: ExcalidrawImperativeAPI;
+  boardLoad?: BoardLoadHandle;
 }): Promise<
   { scene: ExcalidrawInitialDataState | null } & (
     | { isExternalScene: true; id: string; key: string }
@@ -273,6 +275,7 @@ const initializeScene = async (opts: {
         roomLinkData = { roomId: boardRouteId, roomKey: loaded.roomKey };
         appJotaiStore.set(sharedSceneRoomAtom, roomLinkData);
         appJotaiStore.set(currentBoardAtom, loaded.board);
+        opts.boardLoad?.setTitle(loaded.board.title);
         try {
           const team = await loadTeam();
           const appUser = getCurrentAppUser();
@@ -389,7 +392,10 @@ const initializeScene = async (opts: {
   if (roomLinkData && opts.collabAPI) {
     const { excalidrawAPI } = opts;
 
-    const scene = await opts.collabAPI.startCollaboration(roomLinkData);
+    opts.boardLoad?.loadingScene();
+    const scene = await opts.collabAPI.startCollaboration(roomLinkData, {
+      onSceneDownloaded: opts.boardLoad?.sceneDownloaded,
+    });
 
     return {
       // when collaborating, the state may have already been updated at this
@@ -505,7 +511,11 @@ const ExcalidrawWrapper = () => {
   // Hoisted loadImages
   // ---------------------------------------------------------------------------
   const loadImages = useCallback(
-    (data: ResolutionType<typeof initializeScene>, isInitialLoad = false) => {
+    (
+      data: ResolutionType<typeof initializeScene>,
+      isInitialLoad = false,
+      onBoardImagesProgress?: (loaded: number, total: number) => void,
+    ) => {
       if (!data.scene || !excalidrawAPI) {
         return;
       }
@@ -516,6 +526,7 @@ const ExcalidrawWrapper = () => {
             .fetchImageFilesFromFirebase({
               elements: data.scene.elements,
               forceFetchFiles: true,
+              onProgress: onBoardImagesProgress,
             })
             .then(({ loadedFiles, erroredFiles }) => {
               excalidrawAPI.addFiles(loadedFiles);
@@ -591,10 +602,35 @@ const ExcalidrawWrapper = () => {
       return;
     }
 
-    initializeScene({ collabAPI, excalidrawAPI }).then(async (data) => {
-      loadImages(data, /* isInitialLoad */ true);
-      initialStatePromiseRef.current.promise.resolve(data.scene);
-    });
+    const boardLoad = getBoardLoadHandle();
+    let disposed = false;
+
+    initializeScene({ collabAPI, excalidrawAPI, boardLoad })
+      .then(async (data) => {
+        if (data.scene?.appState?.errorMessage) {
+          // the editor shows the error, don't keep it under the loading screen
+          boardLoad.fail();
+        } else {
+          boardLoad.sceneReady(
+            data.scene?.elements?.filter((element) => !element.isDeleted)
+              .length ?? 0,
+          );
+        }
+        loadImages(data, /* isInitialLoad */ true, boardLoad.imagesProgress);
+        initialStatePromiseRef.current.promise.resolve(data.scene);
+        // the scene arriving isn't the scene on screen: a large board takes
+        // the editor a while to build and paint
+        if (
+          boardLoad.active &&
+          (await waitForScenePaint(excalidrawAPI, () => disposed))
+        ) {
+          boardLoad.rendered();
+        }
+      })
+      .catch((error) => {
+        boardLoad.fail();
+        throw error;
+      });
 
     const onHashChange = async (event: HashChangeEvent) => {
       event.preventDefault();
@@ -704,6 +740,7 @@ const ExcalidrawWrapper = () => {
     document.addEventListener(EVENT.VISIBILITY_CHANGE, visibilityChange, false);
     window.addEventListener(EVENT.FOCUS, visibilityChange, false);
     return () => {
+      disposed = true;
       window.removeEventListener(EVENT.HASHCHANGE, onHashChange, false);
       window.removeEventListener(EVENT.UNLOAD, onUnload, false);
       window.removeEventListener(EVENT.BLUR, visibilityChange, false);
@@ -974,7 +1011,6 @@ const ExcalidrawWrapper = () => {
         "is-collaborating": isCollaborating,
       })}
     >
-      <CollabLoadingOverlay theme={editorTheme} />
       <Excalidraw
         onChange={onChange}
         viewModeEnabled={isBoardViewOnly}
@@ -1374,22 +1410,18 @@ const RoutedApp = () => {
     }
   }
 
-  // editor mounts only once auth is resolved, so a private board's key fetch
-  // sees the restored user instead of racing against session restore
-  if (authLoading) {
-    return (
-      <AppShell>
-        <div className="exa-page">
-          <p className="exa-loading-text">{t("app.common.loading")}</p>
-        </div>
-      </AppShell>
-    );
-  }
-
   return (
-    <ExcalidrawAPIProvider>
-      <ExcalidrawWrapper />
-    </ExcalidrawAPIProvider>
+    <>
+      {/* editor mounts only once auth is resolved, so a private board's key
+          fetch sees the restored user instead of racing against session restore */}
+      {!authLoading && (
+        <ExcalidrawAPIProvider>
+          <ExcalidrawWrapper />
+        </ExcalidrawAPIProvider>
+      )}
+      {/* one screen from session restore until the scene is painted */}
+      <BoardLoadingScreen />
+    </>
   );
 };
 

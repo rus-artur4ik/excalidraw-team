@@ -47,7 +47,10 @@ export class FileManager {
     saveFiles,
     onFileStatusChange,
   }: {
-    getFiles: (fileIds: FileId[]) => Promise<{
+    getFiles: (
+      fileIds: FileId[],
+      onProgress?: (settled: number, total: number) => void,
+    ) => Promise<{
       loadedFiles: BinaryFileData[];
       erroredFiles: Map<FileId, true>;
     }>;
@@ -138,6 +141,7 @@ export class FileManager {
 
   getFiles = async (
     ids: FileId[],
+    onProgress?: (settled: number, total: number) => void,
   ): Promise<{
     loadedFiles: BinaryFileData[];
     erroredFiles: Map<FileId, true>;
@@ -155,7 +159,10 @@ export class FileManager {
     this._onFileStatusChange?.(ids.map((id) => [id, "loading"]));
 
     try {
-      const { loadedFiles, erroredFiles } = await this._getFiles(ids);
+      const { loadedFiles, erroredFiles } = await this._getFiles(
+        ids,
+        onProgress,
+      );
 
       for (const file of loadedFiles) {
         this.savedFiles.set(file.id, this.getFileVersion(file));

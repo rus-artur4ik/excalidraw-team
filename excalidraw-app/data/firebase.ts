@@ -558,6 +558,7 @@ export const loadFromFirebase = async (
   roomId: string,
   roomKey: string,
   socket: Socket | null,
+  onDownloaded?: (bytes: number) => void,
 ): Promise<readonly SyncableExcalidrawElement[] | null> => {
   const firestore = _getFirestore();
   const docRef = doc(firestore, "scenes", roomId);
@@ -566,6 +567,7 @@ export const loadFromFirebase = async (
     return null;
   }
   const storedScene = docSnap.data() as FirebaseStoredScene;
+  onDownloaded?.(storedScene.ciphertext.toUint8Array().byteLength);
   const elements = getSyncableElements(
     restoreElements(await decryptElements(storedScene, roomKey), null, {
       deleteInvisibleElements: true,
