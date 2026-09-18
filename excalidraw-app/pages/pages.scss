@@ -1,10 +1,12 @@
 .excalidraw.excalidraw--app-page {
   position: static;
   display: block;
-  overflow: visible;
-  height: auto;
+  // index.html locks html/body (overflow: hidden) for the editor canvas, so
+  // the document never scrolls; app pages scroll inside the shell instead
+  overflow-x: hidden;
+  overflow-y: auto;
+  height: 100%;
   width: auto;
-  min-height: 100vh;
   user-select: text;
   background: var(--color-surface-mid);
   color: var(--color-on-surface);
