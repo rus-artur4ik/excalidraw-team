@@ -1,70 +1,84 @@
-import type { Folder } from "../data/folders";
+import { useState } from "react";
+import { flushSync } from "react-dom";
 
-/** Which slice of the boards list the home page is showing. */
-export type FolderView =
-  | { kind: "all" }
-  | { kind: "unfiled" }
-  | { kind: "folder"; id: string };
+import { navigate } from "../router";
 
-export const ALL_VIEW: FolderView = { kind: "all" };
-export const UNFILED_VIEW: FolderView = { kind: "unfiled" };
+import type { DragEvent } from "react";
 
 /** MIME type carried by a dragged board card. */
 export const BOARD_DRAG_TYPE = "application/x-excalidraw-team-board";
 
-const STORAGE_KEY = "excalidraw-team.home.folderView";
+/**
+ * view-transition-name shared by a folder tile and the open folder's header,
+ * so the browser morphs one into the other.
+ */
+export const FOLDER_MORPH_NAME = "exa-folder-morph";
 
-export const sameView = (a: FolderView, b: FolderView): boolean =>
-  a.kind === b.kind &&
-  (a.kind !== "folder" || b.kind !== "folder" || a.id === b.id);
+const acceptsBoard = (event: DragEvent) =>
+  event.dataTransfer.types.includes(BOARD_DRAG_TYPE);
 
-export const boardInView = (
-  view: FolderView,
-  folderId: string | null,
-): boolean => {
-  switch (view.kind) {
-    case "all":
-      return true;
-    case "unfiled":
-      return folderId === null;
-    case "folder":
-      return folderId === view.id;
-  }
+/** Makes an element accept a dragged board card. */
+export const useBoardDrop = (onDropBoard: (boardId: string) => void) => {
+  const [over, setOver] = useState(false);
+  return {
+    over,
+    dropHandlers: {
+      onDragOver: (event: DragEvent) => {
+        if (!acceptsBoard(event)) {
+          return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setOver(true);
+      },
+      onDragLeave: () => setOver(false),
+      onDrop: (event: DragEvent) => {
+        if (!acceptsBoard(event)) {
+          return;
+        }
+        event.preventDefault();
+        setOver(false);
+        const boardId = event.dataTransfer.getData(BOARD_DRAG_TYPE);
+        if (boardId) {
+          onDropBoard(boardId);
+        }
+      },
+    },
+  };
 };
 
-/** Falls back to "all boards" when the selected folder no longer exists. */
-export const resolveView = (view: FolderView, folders: Folder[]): FolderView =>
-  view.kind === "folder" && !folders.some((folder) => folder.id === view.id)
-    ? ALL_VIEW
-    : view;
+const folderTile = (folderId: string) =>
+  document.querySelector<HTMLElement>(
+    `[data-folder-tile="${CSS.escape(folderId)}"]`,
+  );
 
-export const readStoredView = (): FolderView => {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return ALL_VIEW;
-    }
-    const parsed = JSON.parse(raw);
-    if (parsed?.kind === "unfiled") {
-      return UNFILED_VIEW;
-    }
-    if (parsed?.kind === "folder" && typeof parsed.id === "string") {
-      return { kind: "folder", id: parsed.id };
-    }
-  } catch {
-    // ignore — a broken or unavailable storage just means "all boards"
+/**
+ * Navigates between the folder grid and an open folder. Where the browser
+ * supports view transitions, the folder's tile morphs into the folder header
+ * (and back); elsewhere it is a plain navigation and only the CSS entrance
+ * animations play.
+ */
+export const navigateWithFolderMorph = (to: string, folderId: string) => {
+  const reduceMotion = window.matchMedia?.(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  if (!document.startViewTransition || reduceMotion) {
+    navigate(to);
+    return;
   }
-  return ALL_VIEW;
-};
-
-export const storeView = (view: FolderView) => {
-  try {
-    if (view.kind === "all") {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } else {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(view));
-    }
-  } catch {
-    // storage may be unavailable (private mode); the view is still applied
-  }
+  // The header carries the name through CSS; the tile only for the moment
+  // it is captured, so the other tiles simply fade with the page.
+  let tile = folderTile(folderId);
+  tile?.style.setProperty("view-transition-name", FOLDER_MORPH_NAME);
+  const transition = document.startViewTransition(() => {
+    flushSync(() => navigate(to));
+    tile = folderTile(folderId);
+    // Back on the root: the header lands on this tile, which therefore
+    // skips the entrance animation the other tiles play.
+    tile?.setAttribute("data-folder-morph", "");
+    tile?.style.setProperty("view-transition-name", FOLDER_MORPH_NAME);
+  });
+  transition.finished.finally(() =>
+    tile?.style.removeProperty("view-transition-name"),
+  );
 };

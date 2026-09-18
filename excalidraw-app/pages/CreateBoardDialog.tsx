@@ -10,6 +10,7 @@ import { AppDialog } from "../components/AppDialog";
 import { useAuth } from "../auth/AuthContext";
 import { DEFAULT_BOT_POLICY, createBoard } from "../data/boards";
 import { listMyBots, updateBot } from "../data/bots";
+import { moveBoardToFolder } from "../data/folders";
 import { navigate } from "../router";
 
 import { BoardDescriptionField } from "./BoardDescriptionField";
@@ -17,14 +18,18 @@ import { BOT_POLICY_OPTIONS, VISIBILITY_OPTIONS } from "./boardOptions";
 
 import type { BotPolicy, Visibility } from "../data/boards";
 import type { Bot, BotBoardBinding } from "../data/bots";
+import type { Folder } from "../data/folders";
 
 type BindingRole = "read" | "write";
 
 export const CreateBoardDialog = ({
   allowTeam,
+  folder = null,
   onClose,
 }: {
   allowTeam: boolean;
+  /** The folder open on the home page; the new board is filed into it. */
+  folder?: { id: string; folders: Folder[] } | null;
   onClose: () => void;
 }) => {
   const t = useAppT();
@@ -142,6 +147,18 @@ export const CreateBoardDialog = ({
       setError(t("app.create.botsError"));
       setBusy(false);
       return;
+    }
+    if (folder) {
+      try {
+        await moveBoardToFolder(
+          createdRoomIdRef.current,
+          folder.id,
+          folder.folders,
+        );
+      } catch (err) {
+        // the board exists and opens anyway; it just stays unfiled
+        console.error(err);
+      }
     }
     navigate(`/b/${createdRoomIdRef.current}`);
   };

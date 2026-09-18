@@ -1,6 +1,5 @@
 import {
   LinkIcon,
-  LoadIcon,
   LockedIcon,
   settingsIcon,
   usersIcon,
@@ -45,9 +44,9 @@ export const BoardCard = ({
   canManage,
   onSettings,
   roomKey,
+  thumbnails,
   folders,
-  folder,
-  showFolder,
+  folderId,
   onMoveToFolder,
   onNewFolder,
   onDragStateChange,
@@ -56,18 +55,22 @@ export const BoardCard = ({
   canManage: boolean;
   onSettings: () => void;
   roomKey: string | null;
+  /** Previews already loaded on this page, by room id. */
+  thumbnails: Map<string, string | null>;
   folders: Folder[];
   /** The folder this board is filed in, if any. */
-  folder: Folder | null;
-  /** Show the folder badge (hidden when the page is already inside it). */
-  showFolder: boolean;
+  folderId: string | null;
   onMoveToFolder: (folderId: string | null) => void;
   onNewFolder: () => void;
   onDragStateChange: (dragging: boolean) => void;
 }) => {
   const t = useAppT();
-  const [thumb, setThumb] = useState<string | null>(null);
-  const [loadingThumb, setLoadingThumb] = useState(!!roomKey);
+  const [thumb, setThumb] = useState<string | null>(
+    () => thumbnails.get(board.roomId) ?? null,
+  );
+  const [loadingThumb, setLoadingThumb] = useState(
+    !!roomKey && !thumbnails.has(board.roomId),
+  );
   const [dragging, setDragging] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -76,10 +79,16 @@ export const BoardCard = ({
       setLoadingThumb(false);
       return;
     }
+    if (thumbnails.has(board.roomId)) {
+      setThumb(thumbnails.get(board.roomId) ?? null);
+      setLoadingThumb(false);
+      return;
+    }
     let active = true;
     setLoadingThumb(true);
     loadBoardThumbnail({ roomId: board.roomId, roomKey })
       .then((dataUrl) => {
+        thumbnails.set(board.roomId, dataUrl);
         if (active) {
           setThumb(dataUrl);
         }
@@ -93,7 +102,7 @@ export const BoardCard = ({
     return () => {
       active = false;
     };
-  }, [board.roomId, roomKey]);
+  }, [board.roomId, roomKey, thumbnails]);
 
   const title = board.title || t("app.common.untitled");
   const href = `/b/${board.roomId}`;
@@ -176,19 +185,6 @@ export const BoardCard = ({
               {t("app.card.archivedBadge")}
             </span>
           )}
-          {showFolder && folder && (
-            <span
-              className="exa-badge exa-badge--folder"
-              title={t("app.folders.inFolder", {
-                name: folder.name || t("app.folders.untitled"),
-              })}
-            >
-              {LoadIcon}
-              <span className="exa-badge__text">
-                {folder.name || t("app.folders.untitled")}
-              </span>
-            </span>
-          )}
           <span className="exa-badge">
             {vis.icon}
             {t(vis.labelKey)}
@@ -201,7 +197,7 @@ export const BoardCard = ({
           <div className="exa-card__actions">
             <FolderPickMenu
               folders={folders}
-              currentId={folder?.id ?? null}
+              currentId={folderId}
               onPick={onMoveToFolder}
               onNewFolder={onNewFolder}
               onOpenChange={setMenuOpen}

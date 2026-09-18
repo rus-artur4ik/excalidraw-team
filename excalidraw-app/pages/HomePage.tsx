@@ -1,4 +1,8 @@
-import { ExcalLogo, PlusIcon } from "@excalidraw/excalidraw/components/icons";
+import {
+  ExcalLogo,
+  LoadIcon,
+  PlusIcon,
+} from "@excalidraw/excalidraw/components/icons";
 import { FilledButton } from "@excalidraw/excalidraw/components/FilledButton";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +13,7 @@ import { AppConfirm } from "../components/AppConfirm";
 import { AppHeader } from "../components/AppHeader";
 import { AppShell } from "../components/AppShell";
 import { useAuth } from "../auth/AuthContext";
+import { navigate } from "../router";
 import {
   canWriteBoard,
   listInvitedBoards,
@@ -37,21 +42,12 @@ import {
 } from "./BoardFilter";
 import { BoardSettingsDialog } from "./BoardSettings";
 import { CreateBoardDialog } from "./CreateBoardDialog";
-import { FolderBar } from "./FolderBar";
 import { FolderDialog } from "./FolderDialog";
-import {
-  ALL_VIEW,
-  boardInView,
-  readStoredView,
-  resolveView,
-  sameView,
-  storeView,
-} from "./folderView";
+import { FolderGrid, FolderHeader } from "./FolderGrid";
 
 import type { BoardFilterValue } from "./BoardFilter";
 import type { Board, Team } from "../data/boards";
 import type { Folder } from "../data/folders";
-import type { FolderView } from "./folderView";
 
 const SkeletonCard = () => (
   <li className="exa-card" aria-hidden="true">
@@ -79,7 +75,12 @@ type FolderDialogState =
   | { mode: "create"; moveBoardId: string | null }
   | { mode: "rename"; folder: Folder };
 
-export const HomePage = () => {
+export const HomePage = ({
+  folderId,
+}: {
+  /** The folder opened at `/f/:id`; null shows the folders and loose boards. */
+  folderId: string | null;
+}) => {
   const t = useAppT();
   const { user, loading, signIn } = useAuth();
   const [boards, setBoards] = useState<Board[]>([]);
@@ -104,18 +105,15 @@ export const HomePage = () => {
     foldersRef.current = next;
     setFoldersState(next);
   }, []);
-  const [view, setViewState] = useState<FolderView>(readStoredView);
   const [folderDialog, setFolderDialog] = useState<FolderDialogState | null>(
     null,
   );
   const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-
-  const setView = useCallback((next: FolderView) => {
-    setViewState(next);
-    storeView(next);
-  }, []);
+  // Board previews for this visit of the home page: switching folders
+  // remounts the cards, and should not refetch every preview.
+  const [thumbnails] = useState(() => new Map<string, string | null>());
 
   useEffect(() => {
     if (!user) {
@@ -144,7 +142,6 @@ export const HomePage = () => {
       const list = unionById(mine, invited, teamBoards);
       setBoards(list);
       setFolders(loadedFolders);
-      setViewState((current) => resolveView(current, loadedFolders));
       setTeam(loadedTeam);
       setIsAdmin(role === "admin");
       setIsTeamMember(!!role);
@@ -173,6 +170,17 @@ export const HomePage = () => {
     () => new Map(folders.map((folder) => [folder.id, folder])),
     [folders],
   );
+  const openFolder = folderId ? folderById.get(folderId) ?? null : null;
+  const folderMissing =
+    !!folderId && !loadingBoards && !loadError && !openFolder;
+
+  // A deleted folder, or a link to someone else's (folders are private),
+  // lands on the root instead of an empty page.
+  useEffect(() => {
+    if (folderMissing) {
+      navigate("/", { replace: true });
+    }
+  }, [folderMissing]);
 
   const moveBoard = useCallback(
     async (boardId: string, targetFolderId: string | null) => {
@@ -211,8 +219,6 @@ export const HomePage = () => {
     setFolderDialog(null);
     if (folderDialog.moveBoardId) {
       void moveBoard(folderDialog.moveBoardId, created.id);
-    } else {
-      setView({ kind: "folder", id: created.id });
     }
   };
 
@@ -226,8 +232,8 @@ export const HomePage = () => {
     try {
       await deleteFolder(folder.id);
       setFolders(foldersRef.current.filter((item) => item.id !== folder.id));
-      if (sameView(view, { kind: "folder", id: folder.id })) {
-        setView(ALL_VIEW);
+      if (folder.id === folderId) {
+        navigate("/", { replace: true });
       }
     } catch (error) {
       console.error(error);
@@ -275,33 +281,41 @@ export const HomePage = () => {
     board.ownerUid === user.uid ||
     (isAdmin && (board.visibility === "team" || !!board.teamId));
 
-  const filteredBoards = boards.filter((board) =>
-    boardMatchesFilter(board, filter, canWriteBoard(board, user, team)),
-  );
-
+  const viewFolderId = openFolder?.id ?? null;
   const folderCounts = new Map<string, number>();
-  let unfiledCount = 0;
+  // Boards of the open folder (the unfiled ones at the root) before the
+  // filter, so the empty message can tell "filtered out" from "empty".
+  let inViewTotal = 0;
   const visibleBoards: Board[] = [];
-  for (const board of filteredBoards) {
-    const folderId = folderIdOfBoard(folders, board.roomId);
-    if (folderId === null) {
-      unfiledCount += 1;
-    } else {
-      folderCounts.set(folderId, (folderCounts.get(folderId) ?? 0) + 1);
+  for (const board of boards) {
+    const boardFolderId = folderIdOfBoard(folders, board.roomId);
+    const matches = boardMatchesFilter(
+      board,
+      filter,
+      canWriteBoard(board, user, team),
+    );
+    if (matches && boardFolderId !== null) {
+      folderCounts.set(
+        boardFolderId,
+        (folderCounts.get(boardFolderId) ?? 0) + 1,
+      );
     }
-    if (boardInView(view, folderId)) {
-      visibleBoards.push(board);
+    if (boardFolderId === viewFolderId) {
+      inViewTotal += 1;
+      if (matches) {
+        visibleBoards.push(board);
+      }
     }
   }
 
   const emptyMessage =
-    boards.length === 0
-      ? t("app.home.empty")
-      : view.kind === "folder"
+    inViewTotal > 0
+      ? t("app.home.emptyFiltered")
+      : openFolder
       ? t("app.folders.empty")
-      : view.kind === "unfiled" && filteredBoards.length > 0
+      : boards.length > 0
       ? t("app.folders.emptyUnfiled")
-      : t("app.home.emptyFiltered");
+      : t("app.home.empty");
 
   return (
     <AppShell>
@@ -312,6 +326,17 @@ export const HomePage = () => {
           <h1>{t("app.home.title")}</h1>
           <div className="exa-page-head__actions">
             <BoardFilter value={filter} onChange={setFilter} />
+            {!folderId && (
+              <FilledButton
+                size="large"
+                variant="outlined"
+                icon={LoadIcon}
+                label={t("app.folders.newFolder")}
+                onClick={() =>
+                  setFolderDialog({ mode: "create", moveBoardId: null })
+                }
+              />
+            )}
             <FilledButton
               size="large"
               icon={PlusIcon}
@@ -320,26 +345,6 @@ export const HomePage = () => {
             />
           </div>
         </div>
-
-        {!loadingBoards && !loadError && (
-          <FolderBar
-            folders={folders}
-            view={view}
-            counts={folderCounts}
-            allCount={filteredBoards.length}
-            unfiledCount={unfiledCount}
-            dragging={dragging}
-            onSelect={setView}
-            onDropBoard={(boardId, folderId) =>
-              void moveBoard(boardId, folderId)
-            }
-            onCreate={() =>
-              setFolderDialog({ mode: "create", moveBoardId: null })
-            }
-            onRename={(folder) => setFolderDialog({ mode: "rename", folder })}
-            onDelete={setDeletingFolder}
-          />
-        )}
 
         {folderError && (
           <p className="exa-error-text" role="alert">
@@ -363,42 +368,84 @@ export const HomePage = () => {
               onClick={() => setReloadKey((key) => key + 1)}
             />
           </div>
-        ) : visibleBoards.length === 0 ? (
-          <p className="exa-empty">{emptyMessage}</p>
         ) : (
-          <ul className="exa-grid">
-            {visibleBoards.map((board) => {
-              const folderId = folderIdOfBoard(folders, board.roomId);
-              return (
-                <BoardCard
-                  key={board.roomId}
-                  board={board}
-                  canManage={canManage(board)}
-                  roomKey={roomKeys.get(board.roomId) ?? null}
-                  onSettings={() => setSettingsBoard(board)}
-                  folders={folders}
-                  folder={folderId ? folderById.get(folderId) ?? null : null}
-                  showFolder={view.kind !== "folder"}
-                  onMoveToFolder={(target) =>
-                    void moveBoard(board.roomId, target)
-                  }
-                  onNewFolder={() =>
-                    setFolderDialog({
-                      mode: "create",
-                      moveBoardId: board.roomId,
-                    })
-                  }
-                  onDragStateChange={setDragging}
-                />
-              );
-            })}
-          </ul>
+          // Keyed by folder so the entrance animations replay on every switch.
+          <div key={viewFolderId ?? ""} className="exa-home-view">
+            {openFolder ? (
+              <FolderHeader
+                folder={openFolder}
+                count={folderCounts.get(openFolder.id) ?? 0}
+                dragging={dragging}
+                onDropBoard={(boardId) => void moveBoard(boardId, null)}
+                onRename={() =>
+                  setFolderDialog({ mode: "rename", folder: openFolder })
+                }
+                onDelete={() => setDeletingFolder(openFolder)}
+              />
+            ) : (
+              folders.length > 0 && (
+                <>
+                  <h2 className="exa-home-section">
+                    {t("app.folders.foldersHeading")}
+                  </h2>
+                  <FolderGrid
+                    folders={folders}
+                    counts={folderCounts}
+                    dragging={dragging}
+                    onDropBoard={(boardId, target) =>
+                      void moveBoard(boardId, target)
+                    }
+                    onRename={(folder) =>
+                      setFolderDialog({ mode: "rename", folder })
+                    }
+                    onDelete={setDeletingFolder}
+                  />
+                  <h2 className="exa-home-section">
+                    {t("app.folders.boardsHeading")}
+                  </h2>
+                </>
+              )
+            )}
+            {visibleBoards.length === 0 ? (
+              <p className="exa-empty">{emptyMessage}</p>
+            ) : (
+              <ul className="exa-grid exa-grid--enter">
+                {visibleBoards.map((board) => (
+                  <BoardCard
+                    key={board.roomId}
+                    board={board}
+                    canManage={canManage(board)}
+                    roomKey={roomKeys.get(board.roomId) ?? null}
+                    thumbnails={thumbnails}
+                    onSettings={() => setSettingsBoard(board)}
+                    folders={folders}
+                    folderId={viewFolderId}
+                    onMoveToFolder={(target) =>
+                      void moveBoard(board.roomId, target)
+                    }
+                    onNewFolder={() =>
+                      setFolderDialog({
+                        mode: "create",
+                        moveBoardId: board.roomId,
+                      })
+                    }
+                    onDragStateChange={setDragging}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </div>
 
       {creating && (
         <CreateBoardDialog
           allowTeam={isTeamMember}
+          folder={
+            openFolder
+              ? { id: openFolder.id, folders: foldersRef.current }
+              : null
+          }
           onClose={() => setCreating(false)}
         />
       )}

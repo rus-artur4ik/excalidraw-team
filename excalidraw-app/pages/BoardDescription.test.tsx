@@ -36,9 +36,9 @@ const renderCard = (value: Board) =>
         canManage={false}
         onSettings={vi.fn()}
         roomKey={null}
+        thumbnails={new Map()}
         folders={[]}
-        folder={null}
-        showFolder
+        folderId={null}
         onMoveToFolder={vi.fn()}
         onNewFolder={vi.fn()}
         onDragStateChange={vi.fn()}

@@ -147,7 +147,12 @@ import { canWriteBoard, loadBoard, loadTeam, teamRoleOf } from "./data/boards";
 import { AdminPage } from "./pages/AdminPage";
 import { BotsPage } from "./pages/BotsPage";
 import { HomePage } from "./pages/HomePage";
-import { getBoardRouteId, navigate, usePathname } from "./router";
+import {
+  getBoardRouteId,
+  getFolderRouteId,
+  navigate,
+  usePathname,
+} from "./router";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
@@ -1399,8 +1404,11 @@ const RoutedApp = () => {
   const hasCollabHash = isCollaborationLink(window.location.href);
 
   if (!hasCollabHash) {
-    if (pathname === "/" || pathname === "") {
-      return <HomePage />;
+    // `/` and `/f/:id` are the same page, so opening a folder keeps the
+    // loaded boards instead of remounting
+    const folderRouteId = getFolderRouteId(pathname);
+    if (pathname === "/" || pathname === "" || folderRouteId) {
+      return <HomePage folderId={folderRouteId} />;
     }
     if (pathname === "/admin") {
       return <AdminPage />;
