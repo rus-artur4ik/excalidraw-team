@@ -93,7 +93,9 @@ describe("exportToSvg", () => {
 
     expect(svgElement).toMatchSnapshot();
     // extend the timeout, as it needs to first load the fonts from disk and then perform whole woff2 decode, subset and encode (without workers)
-  }, 30_000);
+    // CI runs on a shared arm64 node next to tsc and eslint: 30 s timed out there
+    // (Jenkins #67, #68), and the retry then fails on the snapshot counter instead.
+  }, 120_000);
 
   it("with background color", async () => {
     const BACKGROUND_COLOR = "#abcdef";
